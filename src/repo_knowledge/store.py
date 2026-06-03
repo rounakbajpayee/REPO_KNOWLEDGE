@@ -2,7 +2,7 @@
 store.py — Qdrant read/write operations.
 
 Responsibilities:
-  - Create collection on first run if it doesn't exist
+  - Create collection on first actual use (lazy init — not on construction)
   - Upsert chunks with vectors + full metadata payload
   - Delete all vectors for a project (used before reindexing)
   - Vector search with optional project filter
@@ -23,6 +23,11 @@ Payload schema per chunk:
 
 `project` is stored as a keyword field so Qdrant can filter-delete by it
 during reindexing — this is a required design constraint, do not remove.
+
+LAZY INIT: _ensure_collection() is called on first write/read, not on __init__.
+This means a connectivity failure won't crash the process at startup —
+it will raise RuntimeError at the point of the actual operation instead,
+which callers (knowledge.py, mcp_server.py) handle cleanly.
 """
 
 import uuid
@@ -47,26 +52,38 @@ class Store:
         self._collection = collection
         self._embedding_dim = embedding_dim
         self._embedding_model = embedding_model
-        self._ensure_collection()
+        self._collection_ready = False  # lazy — checked on first use
 
     # ── Setup ─────────────────────────────────────────────────────────────────
 
     def _ensure_collection(self) -> None:
-        """Create collection if it doesn't already exist."""
-        existing = {c.name for c in self._client.get_collections().collections}
-        if self._collection in existing:
+        """
+        Create collection if it doesn't already exist.
+        Called lazily on first read/write — not at construction time.
+        Raises RuntimeError with a clean message if Qdrant is unreachable.
+        """
+        if self._collection_ready:
             return
+        try:
+            existing = {c.name for c in self._client.get_collections().collections}
+        except Exception as e:
+            raise RuntimeError(
+                f"Cannot reach Qdrant at {self._client._client._base_url}. "
+                "Check that Qdrant is running and reachable via Tailscale/LAN."
+            ) from e
 
-        self._client.create_collection(
-            collection_name=self._collection,
-            vectors_config=qdrant_models.VectorParams(
-                size=self._embedding_dim,
-                distance=qdrant_models.Distance.COSINE,
-            ),
-        )
+        if self._collection not in existing:
+            self._client.create_collection(
+                collection_name=self._collection,
+                vectors_config=qdrant_models.VectorParams(
+                    size=self._embedding_dim,
+                    distance=qdrant_models.Distance.COSINE,
+                ),
+            )
+        self._collection_ready = True
 
     def health_check(self) -> bool:
-        """Returns True if Qdrant is reachable."""
+        """Returns True if Qdrant is reachable, False otherwise. Never raises."""
         try:
             self._client.get_collections()
             return True
@@ -79,6 +96,8 @@ class Store:
         """Store chunks and their vectors. chunks and vectors must be same length."""
         if len(chunks) != len(vectors):
             raise ValueError(f"chunks ({len(chunks)}) and vectors ({len(vectors)}) length mismatch")
+
+        self._ensure_collection()
 
         now = datetime.now(timezone.utc).isoformat()
         points = [
@@ -101,7 +120,6 @@ class Store:
             for chunk, vector in zip(chunks, vectors)
         ]
 
-        # Upsert in batches of 100 to avoid large payloads
         batch_size = 100
         for i in range(0, len(points), batch_size):
             self._client.upsert(
@@ -115,6 +133,7 @@ class Store:
         Called before reindexing to ensure a clean slate.
         Relies on `project` being stored as a filterable payload field.
         """
+        self._ensure_collection()
         self._client.delete(
             collection_name=self._collection,
             points_selector=qdrant_models.FilterSelector(
@@ -141,6 +160,8 @@ class Store:
         Semantic search. Optionally filter to a single project.
         Returns list of payload dicts with an added `score` field.
         """
+        self._ensure_collection()
+
         query_filter = None
         if project:
             query_filter = qdrant_models.Filter(
@@ -167,8 +188,8 @@ class Store:
 
     def list_projects(self) -> list[str]:
         """Return distinct project names currently indexed in the collection."""
-        # Scroll through all points and collect unique project names.
-        # Acceptable for MVP — replace with a facet query when collection grows large.
+        self._ensure_collection()
+
         projects: set[str] = set()
         offset = None
 
