@@ -7,14 +7,18 @@ Protocol-based design: swap OllamaEmbedder for any other implementation
 Changing embedding models also requires:
   1. Update EMBEDDING_MODEL and EMBEDDING_DIM in .env
   2. Update QDRANT_COLLECTION to a new model-slug name
-  3. Reindex all projects via: python index.py --all
+  3. Reindex all projects via: python index.py
+
+Timeout note:
+  Large models (qwen3-embedding:4b at 2.5GB) take 60-90s to load on first call.
+  OLLAMA_TIMEOUT defaults to 120s. Override in .env if needed.
 """
 
 from typing import Protocol
 
 import httpx
 
-from repo_knowledge.config import EMBEDDING_DIM, EMBEDDING_MODEL, OLLAMA_URL
+from repo_knowledge.config import EMBEDDING_DIM, EMBEDDING_MODEL, OLLAMA_TIMEOUT, OLLAMA_URL
 
 
 class Embedder(Protocol):
@@ -41,7 +45,7 @@ class OllamaEmbedder:
         model: str = EMBEDDING_MODEL,
         ollama_url: str = OLLAMA_URL,
         dimensions: int = EMBEDDING_DIM,
-        timeout: float = 30.0,
+        timeout: float = OLLAMA_TIMEOUT,
     ) -> None:
         self._model = model
         self._url = ollama_url.rstrip("/")
@@ -71,10 +75,17 @@ class OllamaEmbedder:
                 json={"model": self._model, "input": texts},
             )
             response.raise_for_status()
+        except httpx.TimeoutException as e:
+            raise RuntimeError(
+                f"Ollama timed out embedding with model '{self._model}'. "
+                f"Large models take 60-90s on first load. "
+                f"Current timeout: {self._client.timeout.read}s. "
+                "Increase OLLAMA_TIMEOUT in .env if this persists."
+            ) from e
         except httpx.ConnectError as e:
             raise RuntimeError(
                 f"Cannot reach Ollama at {self._url}. "
-                "Check that Ollama is running and accessible via Tailscale."
+                "Check that Ollama is running and accessible via Tailscale/LAN."
             ) from e
         except httpx.HTTPStatusError as e:
             raise RuntimeError(

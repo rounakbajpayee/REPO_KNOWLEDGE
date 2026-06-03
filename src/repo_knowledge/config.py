@@ -19,9 +19,14 @@ QDRANT_COLLECTION: str = os.getenv("QDRANT_COLLECTION", "code_chunks_nomic")
 OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://100.70.3.86:11434")
 EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
+# Timeout in seconds for Ollama embed calls.
+# Large models (qwen3-embedding:4b = 2.5GB) take 60-90s on first load.
+# Increase if you see ReadTimeout errors on first run after Ollama restart.
+OLLAMA_TIMEOUT: float = float(os.getenv("OLLAMA_TIMEOUT", "120.0"))
+
 # Dimension must match the embedding model:
-#   nomic-embed-text  → 768
-#   qwen3-embed       → 1024
+#   nomic-embed-text       → 768
+#   qwen3-embedding:4b     → 1024
 # Changing this requires recreating the collection and reindexing all projects.
 EMBEDDING_DIM: int = int(os.getenv("EMBEDDING_DIM", "768"))
 
