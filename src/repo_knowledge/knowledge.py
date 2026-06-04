@@ -103,7 +103,7 @@ class KnowledgeService:
             r["search_quality"] = search_quality
         return results
 
-    def get_file(self, project_name: str, path: str, trace_id: str | None = None) -> dict:
+    def get_file(self, project_name: str, path: str, start_line: int | None = None, end_line: int | None = None, trace_id: str | None = None) -> dict:
         project = get_project(project_name, self._projects_root)
         if not project:
             trace("error", event_source="get_file", message=f"Project not found: {project_name}",
@@ -123,10 +123,32 @@ class KnowledgeService:
             trace("error", event_source="get_file", message=str(e), project=project_name,
                   path=path, severity="ERROR", subsystem="knowledge", trace_id=trace_id)
             return {"error": f"Could not read file: {e}"}
-        trace("get_file", project=project_name, path=path, line_count=content.count("\n") + 1,
-              subsystem="knowledge", trace_id=trace_id)
-        return {"project": project_name, "path": path, "content": content,
-                "line_count": content.count("\n") + 1}
+        
+        lines = content.splitlines(keepends=True)
+        total_lines = len(lines)
+        
+        sliced_content = content
+        if start_line is not None or end_line is not None:
+            s_idx = (start_line - 1) if start_line is not None else 0
+            e_idx = end_line if end_line is not None else total_lines
+            s_idx = max(0, min(s_idx, total_lines))
+            e_idx = max(0, min(e_idx, total_lines))
+            sliced_content = "".join(lines[s_idx:e_idx])
+            
+        trace("get_file", project=project_name, path=path, start_line=start_line, end_line=end_line,
+              line_count=total_lines, subsystem="knowledge", trace_id=trace_id)
+        
+        ret = {
+            "project": project_name,
+            "path": path,
+            "content": sliced_content,
+            "line_count": total_lines,
+        }
+        if start_line is not None:
+            ret["start_line"] = start_line
+        if end_line is not None:
+            ret["end_line"] = end_line
+        return ret
 
     def reindex_project(self, project_name: str, force: bool = False, trace_id: str | None = None) -> dict:
         t0 = time.monotonic()

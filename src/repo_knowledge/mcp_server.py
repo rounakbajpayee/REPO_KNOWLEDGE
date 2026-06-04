@@ -94,7 +94,18 @@ def _dispatch(svc: KnowledgeService, name: str, arguments: dict, trace_id: str |
         path = arguments.get("path", "")
         if not project or not path:
             return {"error": "Both project and path are required"}
-        return svc.get_file(project, path, trace_id=trace_id)
+        start_line = arguments.get("start_line")
+        end_line = arguments.get("end_line")
+        if start_line is not None:
+            start_line = int(start_line)
+        if end_line is not None:
+            end_line = int(end_line)
+        return svc.get_file(
+            project, path,
+            start_line=start_line,
+            end_line=end_line,
+            trace_id=trace_id,
+        )
 
     elif name == "reindex_project":
         project = arguments.get("project", "")
@@ -172,7 +183,8 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "Read the raw contents of a specific file. "
                 "Requires both project name and file path relative to the project root. "
-                "Use search_codebase first to find the relevant file path."
+                "Supports reading specific line ranges via start_line/end_line to save tokens. "
+                "Use search_codebase first to find the relevant file path and lines."
             ),
             inputSchema={
                 "type": "object",
@@ -184,6 +196,14 @@ async def list_tools() -> list[types.Tool]:
                     "path": {
                         "type": "string",
                         "description": "File path relative to project root, e.g. src/auth/service.py",
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "Optional: 1-indexed start line number (inclusive) to read from",
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "Optional: 1-indexed end line number (inclusive) to read to",
                     },
                 },
                 "required": ["project", "path"],

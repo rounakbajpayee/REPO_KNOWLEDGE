@@ -119,6 +119,17 @@ def test_get_file_returns_content(svc):
     assert result["project"] == "ALPHA"
 
 
+def test_get_file_returns_sliced_content(svc):
+    result = svc.get_file("ALPHA", "src/main.py", start_line=1, end_line=1)
+    assert result["content"] == "def run():\n"
+    assert result["line_count"] == 2
+    assert result["start_line"] == 1
+    assert result["end_line"] == 1
+
+    result2 = svc.get_file("ALPHA", "src/main.py", start_line=2, end_line=2)
+    assert result2["content"] == "    pass\n"
+
+
 def test_get_file_unknown_project(svc):
     result = svc.get_file("NONEXISTENT", "src/main.py")
     assert "error" in result
