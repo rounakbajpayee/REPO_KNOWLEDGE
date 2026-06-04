@@ -3,7 +3,10 @@ from datetime import datetime, timezone
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qdrant_models
 from repo_knowledge.chunker import Chunk
-from repo_knowledge.config import EMBEDDING_DIM, EMBEDDING_MODEL, QDRANT_COLLECTION, QDRANT_URL
+from repo_knowledge.config import (
+    EMBEDDING_DIM, EMBEDDING_MODEL, QDRANT_COLLECTION, QDRANT_URL,
+    SEARCH_SCORE_THRESHOLD,
+)
 
 
 class Store:
@@ -64,6 +67,9 @@ class Store:
                     "start_line": chunk.start_line, "end_line": chunk.end_line,
                     "embedding_model": self._embedding_model,
                     "indexed_at": now,
+                    # New fields — old chunks without these remain queryable
+                    "content_hash": chunk.content_hash,
+                    "file_mtime": chunk.file_mtime,
                 },
             )
             for chunk, vector in zip(chunks, vectors)
@@ -85,7 +91,66 @@ class Store:
             ),
         )
 
-    def search(self, query_vector: list[float], top_k: int, project: str | None = None) -> list[dict]:
+    def delete_file(self, project: str, rel_path: str) -> None:
+        """Delete all indexed chunks for a specific file within a project."""
+        self._ensure_collection()
+        self._client.delete(
+            collection_name=self._collection,
+            points_selector=qdrant_models.FilterSelector(
+                filter=qdrant_models.Filter(
+                    must=[
+                        qdrant_models.FieldCondition(
+                            key="project", match=qdrant_models.MatchValue(value=project),
+                        ),
+                        qdrant_models.FieldCondition(
+                            key="path", match=qdrant_models.MatchValue(value=rel_path),
+                        ),
+                    ]
+                )
+            ),
+        )
+
+    def get_indexed_file_hashes(self, project: str) -> dict[str, str]:
+        """
+        Return {rel_path: content_hash} for every file already indexed under project.
+        Files indexed before Issue #4 (no content_hash in payload) are mapped to "".
+        This allows incremental reindex to treat them as changed and re-embed them.
+        """
+        self._ensure_collection()
+        result: dict[str, str] = {}
+        offset = None
+        project_filter = qdrant_models.Filter(
+            must=[qdrant_models.FieldCondition(
+                key="project", match=qdrant_models.MatchValue(value=project),
+            )]
+        )
+        while True:
+            records, next_offset = self._client.scroll(
+                collection_name=self._collection,
+                scroll_filter=project_filter,
+                limit=250,
+                offset=offset,
+                with_payload=["path", "content_hash"],
+                with_vectors=False,
+            )
+            for record in records:
+                if record.payload:
+                    path = record.payload.get("path", "")
+                    content_hash = record.payload.get("content_hash", "")  # "" for old chunks
+                    if path:
+                        result[path] = content_hash
+            if next_offset is None:
+                break
+            offset = next_offset
+        return result
+
+    def search(
+        self,
+        query_vector: list[float],
+        top_k: int,
+        project: str | None = None,
+        score_threshold: float = SEARCH_SCORE_THRESHOLD,
+    ) -> list[dict]:
         self._ensure_collection()
         query_filter = None
         if project:
@@ -94,11 +159,30 @@ class Store:
                     key="project", match=qdrant_models.MatchValue(value=project),
                 )]
             )
+        # Fetch 2x top_k to allow content_hash deduplication and score filtering
+        fetch_k = top_k * 2
         results = self._client.search(
             collection_name=self._collection, query_vector=query_vector,
-            limit=top_k, query_filter=query_filter, with_payload=True,
+            limit=fetch_k, query_filter=query_filter, with_payload=True,
         )
-        return [{**hit.payload, "score": round(hit.score, 4)} for hit in results]
+
+        seen_hashes: set[str] = set()
+        deduped: list[dict] = []
+        for hit in results:
+            if hit.score < score_threshold:
+                continue
+            payload = hit.payload or {}
+            content_hash = payload.get("content_hash", "")
+            # Dedup by content_hash; fall through (no dedup) when hash is absent
+            if content_hash and content_hash in seen_hashes:
+                continue
+            if content_hash:
+                seen_hashes.add(content_hash)
+            deduped.append({**payload, "score": round(hit.score, 4)})
+            if len(deduped) >= top_k:
+                break
+
+        return deduped
 
     def list_projects(self) -> list[str]:
         self._ensure_collection()

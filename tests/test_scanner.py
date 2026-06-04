@@ -62,3 +62,17 @@ def test_scan_results_are_sorted(fake_projects):
     projects = scan_projects(str(fake_projects))
     names = [p.name for p in projects]
     assert names == sorted(names)
+
+
+def test_get_project_fast_path(fake_projects):
+    """get_project must return a Project without full scan when root/<name>/.git exists."""
+    project = get_project("ALPHA", str(fake_projects))
+    assert project is not None
+    assert project.name == "ALPHA"
+    assert (project.path / ".git").exists()
+
+
+def test_get_project_fast_path_returns_none_for_non_git(fake_projects):
+    """get_project fast path must return None when candidate dir has no .git."""
+    result = get_project("not_a_repo", str(fake_projects))
+    assert result is None

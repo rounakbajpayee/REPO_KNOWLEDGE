@@ -14,11 +14,12 @@ without reading the full file.
 """
 
 import ast
+import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from repo_knowledge.config import IGNORE_DIRS, SUPPORTED_EXTENSIONS
+from repo_knowledge.config import IGNORE_DIRS, IGNORE_EXTENSIONS, SUPPORTED_EXTENSIONS
 
 
 @dataclass
@@ -31,6 +32,8 @@ class Chunk:
     content: str
     start_line: int
     end_line: int
+    content_hash: str = field(default="")   # sha256 of file source, stamped per-file
+    file_mtime: float = field(default=0.0)  # st_mtime of the source file
 
 
 # ── Python AST chunker ────────────────────────────────────────────────────────
@@ -38,7 +41,7 @@ class Chunk:
 def _extract_imports(source_lines: list[str], tree: ast.Module) -> str:
     """Collect all top-level import lines as a header block."""
     import_lines: list[str] = []
-    for node in ast.walk(tree):
+    for node in tree.body:  # top-level only — excludes method-level imports
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             # node.lineno is 1-indexed
             import_lines.append(source_lines[node.lineno - 1])
@@ -139,7 +142,10 @@ def _chunk_js_ts(source: str, rel_path: str, project: str, language: str) -> lis
 
 # ── Markdown header chunker ───────────────────────────────────────────────────
 
-_MD_HEADER_RE = re.compile(r"^##+ .+", re.MULTILINE)
+_MD_HEADER_RE = re.compile(r"^#{1,6} .+", re.MULTILINE)
+
+
+_MD_OVERSIZED_LINES = 80
 
 
 def _chunk_markdown(source: str, rel_path: str, project: str) -> list[Chunk]:
@@ -154,17 +160,26 @@ def _chunk_markdown(source: str, rel_path: str, project: str) -> list[Chunk]:
         end_char = splits[i + 1].start() if i + 1 < len(splits) else len(source)
         block = source[start_char:end_char].strip()
         start_line = source[:start_char].count("\n") + 1
+        end_line = start_line + block.count("\n")
 
-        chunks.append(Chunk(
-            project=project,
-            path=rel_path,
-            language="markdown",
-            chunk_type="section",
-            symbol=match.group().lstrip("#").strip(),
-            content=block,
-            start_line=start_line,
-            end_line=start_line + block.count("\n"),
-        ))
+        if block.count("\n") + 1 > _MD_OVERSIZED_LINES:
+            # Section is too large — split into fixed blocks, preserving line offsets
+            sub_chunks = _chunk_fixed(block, rel_path, project, language="markdown")
+            for sc in sub_chunks:
+                sc.start_line += start_line - 1
+                sc.end_line += start_line - 1
+            chunks.extend(sub_chunks)
+        else:
+            chunks.append(Chunk(
+                project=project,
+                path=rel_path,
+                language="markdown",
+                chunk_type="section",
+                symbol=match.group().lstrip("#").strip(),
+                content=block,
+                start_line=start_line,
+                end_line=end_line,
+            ))
 
     return chunks
 
@@ -212,12 +227,24 @@ _LANG_MAP: dict[str, str] = {
 }
 
 
-def chunk_file(file_path: Path, project_root: Path, project_name: str) -> list[Chunk]:
+def chunk_file(
+    file_path: Path,
+    project_root: Path,
+    project_name: str,
+    *,
+    content_hash: str = "",
+    file_mtime: float = 0.0,
+) -> list[Chunk]:
     """
     Read a single file and return its chunks.
     Returns [] if the file is unsupported, unreadable, or empty.
+
+    content_hash and file_mtime are computed here if not supplied by the caller.
+    They are stamped onto every Chunk produced from this file.
     """
     suffix = file_path.suffix.lower()
+    if suffix in IGNORE_EXTENSIONS:
+        return []
     if suffix not in SUPPORTED_EXTENSIONS:
         return []
 
@@ -229,17 +256,33 @@ def chunk_file(file_path: Path, project_root: Path, project_name: str) -> list[C
     if not source.strip():
         return []
 
+    # Compute hash + mtime if the caller didn't supply them
+    if not content_hash:
+        content_hash = hashlib.sha256(source.encode()).hexdigest()
+    if file_mtime == 0.0:
+        try:
+            file_mtime = file_path.stat().st_mtime
+        except OSError:
+            file_mtime = 0.0
+
     rel_path = str(file_path.relative_to(project_root))
     language = _LANG_MAP.get(suffix, "text")
 
     if suffix == ".py":
-        return _chunk_python(source, rel_path, project_name)
+        chunks = _chunk_python(source, rel_path, project_name)
     elif suffix in {".ts", ".tsx", ".js", ".jsx"}:
-        return _chunk_js_ts(source, rel_path, project_name, language)
+        chunks = _chunk_js_ts(source, rel_path, project_name, language)
     elif suffix == ".md":
-        return _chunk_markdown(source, rel_path, project_name)
+        chunks = _chunk_markdown(source, rel_path, project_name)
     else:
-        return _chunk_fixed(source, rel_path, project_name, language)
+        chunks = _chunk_fixed(source, rel_path, project_name, language)
+
+    # Stamp every chunk with the file-level hash and mtime
+    for chunk in chunks:
+        chunk.content_hash = content_hash
+        chunk.file_mtime = file_mtime
+
+    return chunks
 
 
 def chunk_project(project_root: Path, project_name: str) -> list[Chunk]:
@@ -253,7 +296,10 @@ def chunk_project(project_root: Path, project_name: str) -> list[Chunk]:
         if not file_path.is_file():
             continue
         # Skip ignored directories anywhere in the path
-        if any(part in IGNORE_DIRS for part in file_path.parts):
+        if any(
+            part in IGNORE_DIRS or part.endswith(".egg-info")
+            for part in file_path.parts
+        ):
             continue
         all_chunks.extend(chunk_file(file_path, project_root, project_name))
 

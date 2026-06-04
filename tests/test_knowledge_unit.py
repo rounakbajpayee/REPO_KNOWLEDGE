@@ -26,6 +26,8 @@ def mock_store() -> MagicMock:
          "content": "def run():\n    pass", "score": 0.95,
          "chunk_type": "function", "start_line": 1, "end_line": 2}
     ]
+    # Simulate no previously indexed files (all files treated as new)
+    store.get_indexed_file_hashes.return_value = {}
     return store
 
 
@@ -127,12 +129,22 @@ def test_get_file_missing_file(svc):
     assert "error" in result
 
 
-def test_reindex_calls_delete_first(svc, mock_store):
+def test_reindex_incremental_calls_get_hashes_not_delete(svc, mock_store):
+    """Default (incremental) reindex must NOT call delete_project."""
     svc.reindex_project("ALPHA")
+    mock_store.delete_project.assert_not_called()
+    mock_store.get_indexed_file_hashes.assert_called_once_with("ALPHA")
+
+
+def test_reindex_force_calls_delete_project(svc, mock_store):
+    """force=True must wipe all indexed data before re-embedding."""
+    svc.reindex_project("ALPHA", force=True)
     mock_store.delete_project.assert_called_once_with("ALPHA")
+    mock_store.get_indexed_file_hashes.assert_not_called()
 
 
 def test_reindex_calls_upsert(svc, mock_store):
+    """Both incremental and force paths must upsert chunks."""
     svc.reindex_project("ALPHA")
     assert mock_store.upsert_chunks.called
 
@@ -149,8 +161,84 @@ def test_reindex_returns_chunk_count(svc):
     assert result["chunks_indexed"] > 0
 
 
-def test_reindex_embedder_failure_returns_error(svc, mock_embedder):
+def test_reindex_embedder_failure_returns_error(svc, mock_embedder, mock_store):
+    """Embedder failures must be caught and returned as error dicts."""
     mock_embedder.embed_batch.side_effect = RuntimeError("Ollama is down")
     result = svc.reindex_project("ALPHA")
     assert "error" in result
     assert "Ollama" in result["error"]
+
+
+def test_reindex_incremental_no_changes_returns_zero(svc, mock_store, fake_projects_root):
+    """If all indexed hashes match current files, chunks_indexed must be 0."""
+    # Pre-populate hashes matching the actual file content in fake_projects_root
+    alpha_path = fake_projects_root / "ALPHA"
+    import hashlib
+    hashes = {}
+    for fp in alpha_path.rglob("*"):
+        if fp.is_file():
+            rel = str(fp.relative_to(alpha_path))
+            source = fp.read_text(encoding="utf-8", errors="ignore")
+            hashes[rel] = hashlib.sha256(source.encode()).hexdigest()
+    mock_store.get_indexed_file_hashes.return_value = hashes
+    result = svc.reindex_project("ALPHA")
+    assert result["chunks_indexed"] == 0
+    assert "No changes" in result.get("message", "")
+    mock_store.upsert_chunks.assert_not_called()
+
+
+def test_reindex_search_quality_good(svc):
+    """Results with best score >= 0.65 must report search_quality='good'."""
+    results = svc.search("run function")
+    assert all(r["search_quality"] == "good" for r in results)
+
+
+def test_reindex_search_quality_low(svc, mock_store):
+    """Results with best score in [0.40, 0.65) must report search_quality='low'."""
+    mock_store.search.return_value = [
+        {"project": "ALPHA", "path": "src/main.py", "symbol": "run",
+         "content": "def run(): pass", "score": 0.55,
+         "chunk_type": "function", "start_line": 1, "end_line": 2}
+    ]
+    results = svc.search("run function")
+    assert all(r["search_quality"] == "low" for r in results)
+
+
+def test_reindex_search_quality_none_on_empty(svc, mock_store):
+    """Empty result set must report search_quality='none' (but return empty list)."""
+    mock_store.search.return_value = []
+    results = svc.search("something obscure")
+    assert results == []
+
+
+def test_list_projects_ttl_cache_returns_cached(svc, mock_store):
+    """Second list_projects call within TTL must not re-scan the store."""
+    svc.list_projects()
+    svc.list_projects()
+    # scan_projects hits the filesystem, not the store — but list_projects hits
+    # store.list_projects once per cache miss.  Two calls should yield one store hit.
+    assert mock_store.list_projects.call_count == 1
+
+
+def test_list_projects_cache_invalidated_after_reindex(svc, mock_store):
+    """reindex_project must invalidate the list_projects TTL cache."""
+    svc.list_projects()
+    assert mock_store.list_projects.call_count == 1
+    svc.reindex_project("ALPHA")
+    svc.list_projects()
+    assert mock_store.list_projects.call_count == 2
+
+
+def test_get_project_context_file_count_excludes_ignore_dirs(svc, fake_projects_root):
+    """file_count must not include files inside IGNORE_DIRS like __pycache__."""
+    alpha = fake_projects_root / "ALPHA"
+    cache_dir = alpha / "__pycache__"
+    cache_dir.mkdir()
+    (cache_dir / "main.cpython-311.pyc").write_bytes(b"bytecode")
+    ctx = svc.get_project_context("ALPHA")
+    # file_count must not include the .pyc inside __pycache__
+    normal_count = sum(
+        1 for p in alpha.rglob("*")
+        if p.is_file() and "__pycache__" not in p.parts
+    )
+    assert ctx["file_count"] == normal_count

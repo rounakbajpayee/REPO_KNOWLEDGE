@@ -11,11 +11,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# ── Qdrant ──────────────────────────────────────────────────────────────────────
+# ── Qdrant ──────────────────────────────────────────────────────────────
 QDRANT_URL: str = os.getenv("QDRANT_URL", "http://100.70.3.86:6333")
 QDRANT_COLLECTION: str = os.getenv("QDRANT_COLLECTION", "code_chunks_nomic")
 
-# ── Ollama ───────────────────────────────────────────────────────────────────────
+# ── Ollama ───────────────────────────────────────────────────────────────
 OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://100.70.3.86:11434")
 EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
@@ -30,8 +30,13 @@ OLLAMA_TIMEOUT: float = float(os.getenv("OLLAMA_TIMEOUT", "120.0"))
 # Changing this requires recreating the collection and reindexing all projects.
 EMBEDDING_DIM: int = int(os.getenv("EMBEDDING_DIM", "768"))
 
-# ── Search ───────────────────────────────────────────────────────────────────
+# ── Search ───────────────────────────────────────────────────────────────
 SEARCH_TOP_K: int = int(os.getenv("SEARCH_TOP_K", "5"))
+
+# Minimum similarity score to include in search results.
+# Range [0.0, 1.0] for cosine similarity. Results below this are filtered out.
+# 0.40 removes clearly unrelated noise; 0.65 is "good quality".
+SEARCH_SCORE_THRESHOLD: float = float(os.getenv("SEARCH_SCORE_THRESHOLD", "0.40"))
 
 # ── MCP Server ───────────────────────────────────────────────────────────────
 # Maximum seconds a single tool call may run before the server returns a clean
@@ -39,7 +44,7 @@ SEARCH_TOP_K: int = int(os.getenv("SEARCH_TOP_K", "5"))
 # up to 90s over Tailscale. Increase if you see spurious timeouts on first run.
 TOOL_TIMEOUT_S: float = float(os.getenv("TOOL_TIMEOUT_S", "90.0"))
 
-# ── Scanner ──────────────────────────────────────────────────────────────────
+# ── Scanner ───────────────────────────────────────────────────────────────
 PROJECTS_ROOT: str = os.getenv("PROJECTS_ROOT", os.path.expanduser("~/Projects"))
 
 # Directories to skip during scanning and chunking
@@ -57,6 +62,16 @@ IGNORE_DIRS: set[str] = {
     ".ruff_cache",
     "__pycache__",
     ".mypy_cache",
+    "egg-info",
+    ".egg-info",
+}
+
+# File extensions that must never be indexed (noise / lock files / logs)
+IGNORE_EXTENSIONS: set[str] = {
+    ".lock",
+    ".sum",
+    ".log",
+    ".jsonl",
 }
 
 # File extensions to chunk and index
