@@ -11,11 +11,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# ── Qdrant ──────────────────────────────────────────────────────────────────────
+# ── Qdrant ──────────────────────────────────────────────────────────────────
 QDRANT_URL: str = os.getenv("QDRANT_URL", "http://100.70.3.86:6333")
 QDRANT_COLLECTION: str = os.getenv("QDRANT_COLLECTION", "code_chunks_nomic")
 
-# ── Ollama ───────────────────────────────────────────────────────────────────────
+# ── Ollama ───────────────────────────────────────────────────────────────────
 OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://100.70.3.86:11434")
 EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
@@ -57,6 +57,16 @@ IGNORE_DIRS: set[str] = {
     ".ruff_cache",
     "__pycache__",
     ".mypy_cache",
+    "egg-info",
+    ".egg-info",
+}
+
+# File extensions that must never be indexed (noise / lock files / logs)
+IGNORE_EXTENSIONS: set[str] = {
+    ".lock",
+    ".sum",
+    ".log",
+    ".jsonl",
 }
 
 # File extensions to chunk and index

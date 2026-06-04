@@ -95,7 +95,8 @@ def test_python_async_function_chunked(tmp_path):
 def test_markdown_chunk_count(tmp_path):
     f = _write(tmp_path, "doc.md", MD_SOURCE)
     chunks = chunk_file(f, tmp_path, "PROJ")
-    assert len(chunks) == 2
+    # MD_SOURCE has # Title, ## Section One, ## Section Two — all 3 are sections now
+    assert len(chunks) == 3
 
 
 def test_markdown_chunk_symbols(tmp_path):
@@ -154,3 +155,95 @@ def test_chunk_project_metadata(tmp_path):
     chunks = chunk_project(tmp_path, "MYPROJECT")
     assert all(c.project == "MYPROJECT" for c in chunks)
     assert all(c.language == "python" for c in chunks)
+
+
+# ── Issue #3: Markdown h1 fixes ───────────────────────────────────────────────
+
+MD_H1_SOURCE = """# Title
+
+Some intro content.
+
+## Sub Section
+
+More content here.
+"""
+
+MD_H1_ONLY = """# Title
+
+Just some content under a top-level header.
+No sub-sections at all.
+"""
+
+
+def test_markdown_h1_header_chunked(tmp_path):
+    """# headers must be split as sections, not fall through to fixed chunking."""
+    f = _write(tmp_path, "readme.md", MD_H1_SOURCE)
+    chunks = chunk_file(f, tmp_path, "PROJ")
+    symbols = [c.symbol for c in chunks]
+    assert "Title" in symbols
+
+
+def test_markdown_h1_only_no_h2_still_chunks(tmp_path):
+    """A file with only a # header must produce at least one section chunk."""
+    f = _write(tmp_path, "doc.md", MD_H1_ONLY)
+    chunks = chunk_file(f, tmp_path, "PROJ")
+    assert len(chunks) >= 1
+    # Must not fall through to fixed chunking entirely
+    assert any(c.chunk_type == "section" for c in chunks)
+
+
+def test_markdown_long_section_splits_into_blocks(tmp_path):
+    """A section body > 80 lines must be further split into block chunks."""
+    long_body = "# BigSection\n" + "\n".join(f"line {i}" for i in range(100))
+    f = _write(tmp_path, "long.md", long_body)
+    chunks = chunk_file(f, tmp_path, "PROJ")
+    assert len(chunks) > 1
+
+
+# ── Issue #3: Import extraction scope ────────────────────────────────────────
+
+PY_METHOD_IMPORT = '''
+import os
+
+def foo():
+    import sys  # method-level import — must NOT appear in sibling chunk headers
+    return sys.argv
+
+def bar():
+    return os.getcwd()
+'''
+
+
+def test_python_method_imports_not_in_header(tmp_path):
+    """Imports inside method bodies must not pollute the shared import header."""
+    f = _write(tmp_path, "mod.py", PY_METHOD_IMPORT)
+    chunks = chunk_file(f, tmp_path, "PROJ")
+    bar_chunk = next(c for c in chunks if c.symbol == "bar")
+    assert "import sys" not in bar_chunk.content
+
+
+# ── Issue #3: Ignore extensions + egg-info dirs ───────────────────────────────
+
+def test_lock_file_returns_no_chunks(tmp_path):
+    """package-lock.json (extension .lock after renaming) — .lock files ignored."""
+    f = _write(tmp_path, "poetry.lock", '[metadata]\ncontent-hash = "abc"\n')
+    chunks = chunk_file(f, tmp_path, "PROJ")
+    assert chunks == []
+
+
+def test_jsonl_file_returns_no_chunks(tmp_path):
+    """Trace log files (.jsonl) must not be indexed."""
+    f = _write(tmp_path, "trace.jsonl", '{"event": "tool_start"}\n')
+    chunks = chunk_file(f, tmp_path, "PROJ")
+    assert chunks == []
+
+
+def test_egg_info_dir_skipped_in_project(tmp_path):
+    """chunk_project() must skip .egg-info directories."""
+    _write(tmp_path, "main.py", "def main():\n    pass\n")
+    egg_dir = tmp_path / "mypackage.egg-info"
+    egg_dir.mkdir()
+    _write(egg_dir, "top_level.txt", "mypackage\n")
+    chunks = chunk_project(tmp_path, "PROJ")
+    paths = [c.path for c in chunks]
+    assert all(".egg-info" not in p for p in paths)
