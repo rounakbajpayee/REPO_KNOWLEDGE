@@ -14,9 +14,12 @@ Public API:
 """
 
 import hashlib
+import re
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
+
 
 from repo_knowledge.chunker import chunk_file, chunk_project
 from repo_knowledge.config import IGNORE_DIRS, PROJECTS_ROOT, SEARCH_TOP_K
@@ -38,6 +41,8 @@ class KnowledgeService:
         self._projects_cache: list[dict] | None = None
         self._projects_cache_ts: float = 0.0
         self._projects_cache_lock = threading.Lock()
+        self._vault_lock = threading.Lock()
+
 
     def list_projects(self, trace_id: str | None = None) -> list[dict]:
         with self._projects_cache_lock:
@@ -249,6 +254,177 @@ class KnowledgeService:
         self._invalidate_projects_cache()
         return {"project": project_name, "chunks_indexed": len(changed_chunks),
                 "message": f"Successfully indexed {len(changed_chunks)} chunks"}
+
+    def log_decision(
+        self,
+        topic: str,
+        name: str,
+        description: str,
+        rationale: str,
+        options_considered: list[dict] | None = None,
+        trace_id: str | None = None,
+    ) -> dict:
+        """
+        Append a timestamped decision entry to a Markdown memory file.
+        Creates the vault directory and topic file if they do not exist.
+        Thread-safe.
+        """
+        # Validate/slugify topic to avoid traversal vulnerabilities
+        topic = re.sub(r'[^a-zA-Z0-9_-]', '_', topic).lower()
+        vault_dir = Path(self._projects_root) / "knowledge_vault"
+
+        with self._vault_lock:
+            try:
+                vault_dir.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                trace("error", event_source="log_decision", message=f"Failed to create vault dir: {e}",
+                      severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+                return {"error": f"Failed to create knowledge_vault directory: {e}"}
+
+            vault_file = vault_dir / f"{topic}.md"
+            now_str = datetime.now(timezone.utc).isoformat()
+
+            # Format options_considered list if present
+            options_str = ""
+            if options_considered:
+                options_str = "- **Options Considered:**\n"
+                for opt in options_considered:
+                    opt_name = opt.get("name", "Unknown Option")
+                    opt_status = opt.get("status", "REJECTED")
+                    opt_rat = opt.get("rationale", "")
+                    marker = "[REJECTED]" if opt_status.upper() == "REJECTED" else "[SELECTED]"
+                    options_str += f"  - {marker} *{opt_name} ({opt_status}):* {opt_rat}\n"
+
+
+            new_entry = f"## [{now_str}] {name}\n- **Description:** {description}\n{options_str}- **Rationale:** {rationale}\n"
+
+            if not vault_file.exists():
+                initial = f"""---
+topic: {topic}
+created_at: {now_str}
+last_modified: {now_str}
+entries_count: 1
+---
+# Decision Log: {topic.replace('_', ' ').title()}
+
+{new_entry}"""
+                try:
+                    vault_file.write_text(initial, encoding="utf-8")
+                except OSError as e:
+                    trace("error", event_source="log_decision", message=f"Failed to write initial file: {e}",
+                          severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+                    return {"error": f"Failed to write decision file: {e}"}
+            else:
+                try:
+                    content = vault_file.read_text(encoding="utf-8", errors="ignore")
+                except OSError as e:
+                    return {"error": f"Failed to read existing decision file: {e}"}
+
+                # Parse current frontmatter
+                frontmatter = {}
+                main_body = content
+                if content.startswith("---"):
+                    parts = content.split("---", 2)
+                    if len(parts) >= 3:
+                        fm_text = parts[1]
+                        main_body = parts[2]
+                        for line in fm_text.splitlines():
+                            if ":" in line:
+                                k, v = line.split(":", 1)
+                                frontmatter[k.strip()] = v.strip()
+
+                # Update counts
+                count = int(frontmatter.get("entries_count", 0)) + 1
+                frontmatter["entries_count"] = str(count)
+                frontmatter["last_modified"] = now_str
+
+                fm_str = "---\n" + "\n".join(f"{k}: {v}" for k, v in frontmatter.items()) + "\n---\n"
+                main_body_str = main_body.strip()
+                updated_content = fm_str + main_body_str + "\n\n" + new_entry.strip() + "\n"
+
+                try:
+                    vault_file.write_text(updated_content, encoding="utf-8")
+                except OSError as e:
+                    trace("error", event_source="log_decision", message=f"Failed to append to file: {e}",
+                          severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+                    return {"error": f"Failed to update decision file: {e}"}
+
+        trace("log_decision", topic=topic, entry_name=name, subsystem="knowledge", trace_id=trace_id)
+        return {"topic": topic, "message": f"Successfully logged decision '{name}' under topic '{topic}'"}
+
+    def get_decision_history(
+        self,
+        topic: str,
+        limit: int = 3,
+        full_history: bool = False,
+        trace_id: str | None = None,
+    ) -> dict:
+        """
+        Retrieve chronological decision log entries for a topic.
+        To save token window, limits to last N entries by default.
+        """
+        topic = re.sub(r'[^a-zA-Z0-9_-]', '_', topic).lower()
+        vault_dir = Path(self._projects_root) / "knowledge_vault"
+        vault_file = vault_dir / f"{topic}.md"
+
+        if not vault_file.exists():
+            return {"error": f"Decision log for topic '{topic}' does not exist"}
+
+        with self._vault_lock:
+            try:
+                content = vault_file.read_text(encoding="utf-8", errors="ignore")
+            except OSError as e:
+                trace("error", event_source="get_decision_history", message=f"Failed to read file: {e}",
+                      severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+                return {"error": f"Could not read decision log: {e}"}
+
+        frontmatter = {}
+        main_body = content
+        if content.startswith("---"):
+            parts = content.split("---", 2)
+            if len(parts) >= 3:
+                fm_text = parts[1]
+                main_body = parts[2]
+                for line in fm_text.splitlines():
+                    if ":" in line:
+                        k, v = line.split(":", 1)
+                        frontmatter[k.strip()] = v.strip()
+
+        # Split main body by entry headers
+        entry_splits = re.split(r'^(## \[[^\]]+\] .*?)$', main_body, flags=re.MULTILINE)
+        intro = entry_splits[0].strip()
+        entries = []
+        for i in range(1, len(entry_splits), 2):
+            header = entry_splits[i]
+            body = entry_splits[i+1] if i+1 < len(entry_splits) else ""
+            entries.append(header + "\n" + body.strip())
+
+        total_count = len(entries)
+
+        if not full_history and limit > 0:
+            ret_entries = entries[-limit:]
+            truncated = len(entries) > limit
+        else:
+            ret_entries = entries
+            truncated = False
+
+        fm_str = "---\n" + "\n".join(f"{k}: {v}" for k, v in frontmatter.items()) + "\n---\n" if frontmatter else ""
+        history_text = intro + "\n\n" + "\n\n".join(ret_entries)
+        if truncated:
+            history_text += f"\n\n*Note: History truncated. Showing last {limit} of {total_count} entries. Retrieve with full_history=true to view all.*"
+
+        trace("get_decision_history", topic=topic, limit=limit, full_history=full_history,
+              total_entries=total_count, shown_entries=len(ret_entries),
+              subsystem="knowledge", trace_id=trace_id)
+
+        return {
+            "topic": topic,
+            "frontmatter": frontmatter,
+            "history": history_text,
+            "total_entries": total_count,
+            "shown_entries": len(ret_entries),
+        }
+
 
 
 _IGNORE_IN_TREE = {

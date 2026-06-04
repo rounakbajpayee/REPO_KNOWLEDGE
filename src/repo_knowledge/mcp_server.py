@@ -113,8 +113,39 @@ def _dispatch(svc: KnowledgeService, name: str, arguments: dict, trace_id: str |
             return {"error": "project is required"}
         return svc.reindex_project(project, trace_id=trace_id)
 
+    elif name == "log_decision":
+        topic = arguments.get("topic", "")
+        entry_name = arguments.get("name", "")
+        description = arguments.get("description", "")
+        rationale = arguments.get("rationale", "")
+        options_considered = arguments.get("options_considered")
+        if not topic or not entry_name or not description or not rationale:
+            return {"error": "topic, name, description, and rationale are all required"}
+        return svc.log_decision(
+            topic=topic,
+            name=entry_name,
+            description=description,
+            rationale=rationale,
+            options_considered=options_considered,
+            trace_id=trace_id,
+        )
+
+    elif name == "get_decision_history":
+        topic = arguments.get("topic", "")
+        limit = arguments.get("limit", 3)
+        full_history = arguments.get("full_history", False)
+        if not topic:
+            return {"error": "topic is required"}
+        return svc.get_decision_history(
+            topic=topic,
+            limit=int(limit) if limit is not None else 3,
+            full_history=bool(full_history),
+            trace_id=trace_id,
+        )
+
     else:
         return {"error": f"Unknown tool: {name}"}
+
 
 
 # ── Tool definitions ───────────────────────────────────────────────────────────────
@@ -227,7 +258,79 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["project"],
             },
         ),
+        types.Tool(
+            name="log_decision",
+            description=(
+                "Log an architectural, configuration, or dependency decision under a specific topic. "
+                "Call this IMMEDIATELY when a final decision is reached. Do not wait until the end of the session. "
+                "Input includes options considered and final rationale to preserve the decision evolution timeline."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Slugified topic name (e.g. 'embedding_model', 'auth_handling')",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Brief name for this specific entry (e.g. 'switch_to_qwen')",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "What decision was made.",
+                    },
+                    "rationale": {
+                        "type": "string",
+                        "description": "Detailed reasoning explaining why this choice was selected over alternatives.",
+                    },
+                    "options_considered": {
+                        "type": "array",
+                        "description": "Optional list of alternatives analyzed during brainstorming.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Alternative candidate name"},
+                                "status": {"type": "string", "enum": ["SELECTED", "REJECTED"], "description": "Whether selected or rejected"},
+                                "rationale": {"type": "string", "description": "Pros/cons or reason for rejection/selection"}
+                            },
+                            "required": ["name", "status"]
+                        }
+                    }
+                },
+                "required": ["topic", "name", "description", "rationale"]
+            }
+        ),
+        types.Tool(
+            name="get_decision_history",
+            description=(
+                "Retrieve the chronological history of decisions logged under a topic. "
+                "By default, returns only the last 3 entries to preserve the agent's context window. "
+                "Explicitly request full_history=true to fetch the complete chronological timeline."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Slugified topic name (e.g. 'embedding_model', 'auth_handling')",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max entries to return when full_history is false (default: 3).",
+                        "default": 3,
+                    },
+                    "full_history": {
+                        "type": "boolean",
+                        "description": "Set to true to retrieve all entries. Warning: large histories consume significant tokens.",
+                        "default": False,
+                    }
+                },
+                "required": ["topic"]
+            }
+        ),
     ]
+
 
 
 # ── Tool handlers ────────────────────────────────────────────────────────────────
