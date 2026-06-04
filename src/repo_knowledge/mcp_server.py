@@ -1,8 +1,8 @@
 """
 mcp_server.py — MCP server exposing repository knowledge to coding agents.
 
-Transport: SSE (Server-Sent Events)
-  - Compatible with Claude, Codex, OpenCode, and any HTTP client
+Transport: stdio
+  - Compatible with Claude, Codex, OpenCode, and any MCP-capable client
   - Future REST/gRPC adapters should call KnowledgeService directly,
     not this module
 
@@ -16,12 +16,17 @@ Tools:
 All tools return structured dicts. Errors are returned as {"error": "..."} —
 agents should check for this key rather than catching exceptions.
 
+Timeout:
+  Each tool call is wrapped with asyncio.wait_for(TOOL_TIMEOUT_S).
+  On timeout the server returns a clean {"error": "..."} and stays alive.
+
 Startup checks:
   Qdrant and Ollama reachability are verified on server start.
   Server starts regardless — tools return clean error messages if
   a backend is unreachable at call time.
 """
 
+import asyncio
 import json
 import logging
 
@@ -29,7 +34,7 @@ import mcp.server.stdio
 import mcp.types as types
 from mcp.server import Server
 
-from repo_knowledge.config import OLLAMA_URL, QDRANT_URL
+from repo_knowledge.config import OLLAMA_URL, QDRANT_URL, TOOL_TIMEOUT_S
 from repo_knowledge.embedder import OllamaEmbedder
 from repo_knowledge.knowledge import KnowledgeService
 from repo_knowledge.store import Store
@@ -37,7 +42,7 @@ from repo_knowledge.store import Store
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-# ── Server init ───────────────────────────────────────────────────────────────
+# ── Server init ───────────────────────────────────────────────────────────────────
 
 server = Server("repo-knowledge")
 _svc: KnowledgeService | None = None
@@ -50,7 +55,55 @@ def _get_service() -> KnowledgeService:
     return _svc
 
 
-# ── Tool definitions ──────────────────────────────────────────────────────────
+# ── Synchronous dispatch (pure, no async) ───────────────────────────────────────────
+
+def _dispatch(svc: KnowledgeService, name: str, arguments: dict) -> dict:
+    """Route a tool call to the appropriate KnowledgeService method.
+
+    This is a plain synchronous function so it can be run in a thread executor
+    and wrapped with asyncio.wait_for() in call_tool().
+
+    Raises RuntimeError if the underlying service raises it — the caller in
+    call_tool() catches RuntimeError and converts it to a clean error response.
+    All other exceptions propagate as-is for call_tool() to handle.
+    """
+    if name == "list_projects":
+        return svc.list_projects()
+
+    elif name == "get_project_context":
+        project = arguments.get("project", "")
+        if not project:
+            return {"error": "project is required"}
+        return svc.get_project_context(project)
+
+    elif name == "search_codebase":
+        query = arguments.get("query", "")
+        if not query:
+            return {"error": "query is required"}
+        return svc.search(
+            query=query,
+            project=arguments.get("project"),
+            top_k=int(arguments.get("top_k", 5)),
+        )
+
+    elif name == "get_file":
+        project = arguments.get("project", "")
+        path = arguments.get("path", "")
+        if not project or not path:
+            return {"error": "Both project and path are required"}
+        return svc.get_file(project, path)
+
+    elif name == "reindex_project":
+        project = arguments.get("project", "")
+        if not project:
+            return {"error": "project is required"}
+        return svc.reindex_project(project)
+
+    else:
+        return {"error": f"Unknown tool: {name}"}
+
+
+# ── Tool definitions ───────────────────────────────────────────────────────────────
 
 @server.list_tools()
 async def list_tools() -> list[types.Tool]:
@@ -154,55 +207,33 @@ async def list_tools() -> list[types.Tool]:
     ]
 
 
-# ── Tool handlers ─────────────────────────────────────────────────────────────
+# ── Tool handlers ────────────────────────────────────────────────────────────────
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     svc = _get_service()
+    loop = asyncio.get_event_loop()
 
     try:
-        if name == "list_projects":
-            result = svc.list_projects()
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, _dispatch, svc, name, arguments),
+            timeout=TOOL_TIMEOUT_S,
+        )
 
-        elif name == "get_project_context":
-            project = arguments.get("project", "")
-            if not project:
-                result = {"error": "project is required"}
-            else:
-                result = svc.get_project_context(project)
-
-        elif name == "search_codebase":
-            query = arguments.get("query", "")
-            if not query:
-                result = {"error": "query is required"}
-            else:
-                result = svc.search(
-                    query=query,
-                    project=arguments.get("project"),
-                    top_k=int(arguments.get("top_k", 5)),
-                )
-
-        elif name == "get_file":
-            project = arguments.get("project", "")
-            path = arguments.get("path", "")
-            if not project or not path:
-                result = {"error": "Both project and path are required"}
-            else:
-                result = svc.get_file(project, path)
-
-        elif name == "reindex_project":
-            project = arguments.get("project", "")
-            if not project:
-                result = {"error": "project is required"}
-            else:
-                result = svc.reindex_project(project)
-
-        else:
-            result = {"error": f"Unknown tool: {name}"}
+    except asyncio.TimeoutError:
+        timeout_s = int(TOOL_TIMEOUT_S)
+        log.warning("Tool '%s' timed out after %ss", name, timeout_s)
+        result = {
+            "error": (
+                f"Tool '{name}' timed out after {timeout_s}s. "
+                "Backend (Qdrant/Ollama) may be unresponsive."
+            )
+        }
 
     except RuntimeError as e:
         # Embedder or store connectivity failure — return clean error to agent
         result = {"error": str(e)}
+
     except Exception as e:
         log.exception("Unexpected error in tool %s", name)
         result = {"error": f"Internal error: {e}"}
@@ -210,7 +241,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# ── Entry point ────────────────────────────────────────────────────────────────
 
 async def main() -> None:
     log.info("Starting REPO_KNOWLEDGE MCP server")
