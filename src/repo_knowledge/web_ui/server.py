@@ -97,9 +97,10 @@ def get_status():
         },
         "ollama": {
             "status": "connected" if ollama_ok else "disconnected",
-            "model": svc._embedder.model_name
+            "model": svc._embedder.model
         }
     }
+
 
 
 @app.get("/api/projects")
