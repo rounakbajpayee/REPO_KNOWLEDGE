@@ -34,10 +34,12 @@ import mcp.server.stdio
 import mcp.types as types
 from mcp.server import Server
 
+import time
 from repo_knowledge.config import OLLAMA_URL, QDRANT_URL, TOOL_TIMEOUT_S
 from repo_knowledge.embedder import OllamaEmbedder
 from repo_knowledge.knowledge import KnowledgeService
 from repo_knowledge.store import Store
+from repo_knowledge.tracer import new_trace_id, trace
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -57,7 +59,7 @@ def _get_service() -> KnowledgeService:
 
 # ── Synchronous dispatch (pure, no async) ───────────────────────────────────────────
 
-def _dispatch(svc: KnowledgeService, name: str, arguments: dict) -> dict:
+def _dispatch(svc: KnowledgeService, name: str, arguments: dict, trace_id: str | None = None) -> dict:
     """Route a tool call to the appropriate KnowledgeService method.
 
     This is a plain synchronous function so it can be run in a thread executor
@@ -68,13 +70,13 @@ def _dispatch(svc: KnowledgeService, name: str, arguments: dict) -> dict:
     All other exceptions propagate as-is for call_tool() to handle.
     """
     if name == "list_projects":
-        return svc.list_projects()
+        return svc.list_projects(trace_id=trace_id)
 
     elif name == "get_project_context":
         project = arguments.get("project", "")
         if not project:
             return {"error": "project is required"}
-        return svc.get_project_context(project)
+        return svc.get_project_context(project, trace_id=trace_id)
 
     elif name == "search_codebase":
         query = arguments.get("query", "")
@@ -84,6 +86,7 @@ def _dispatch(svc: KnowledgeService, name: str, arguments: dict) -> dict:
             query=query,
             project=arguments.get("project"),
             top_k=int(arguments.get("top_k", 5)),
+            trace_id=trace_id,
         )
 
     elif name == "get_file":
@@ -91,13 +94,13 @@ def _dispatch(svc: KnowledgeService, name: str, arguments: dict) -> dict:
         path = arguments.get("path", "")
         if not project or not path:
             return {"error": "Both project and path are required"}
-        return svc.get_file(project, path)
+        return svc.get_file(project, path, trace_id=trace_id)
 
     elif name == "reindex_project":
         project = arguments.get("project", "")
         if not project:
             return {"error": "project is required"}
-        return svc.reindex_project(project)
+        return svc.reindex_project(project, trace_id=trace_id)
 
     else:
         return {"error": f"Unknown tool: {name}"}
@@ -213,16 +216,23 @@ async def list_tools() -> list[types.Tool]:
 async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     svc = _get_service()
     loop = asyncio.get_event_loop()
+    tid = new_trace_id()
+    trace("tool_start", subsystem="mcp", trace_id=tid, tool=name, arguments=arguments)
+    t0 = time.monotonic()
 
     try:
         result = await asyncio.wait_for(
-            loop.run_in_executor(None, _dispatch, svc, name, arguments),
+            loop.run_in_executor(None, _dispatch, svc, name, arguments, tid),
             timeout=TOOL_TIMEOUT_S,
         )
+        duration_ms = round((time.monotonic() - t0) * 1000)
+        trace("tool_complete", subsystem="mcp", trace_id=tid, tool=name, duration_ms=duration_ms)
 
     except asyncio.TimeoutError:
         timeout_s = int(TOOL_TIMEOUT_S)
         log.warning("Tool '%s' timed out after %ss", name, timeout_s)
+        duration_ms = round((time.monotonic() - t0) * 1000)
+        trace("tool_timeout", subsystem="mcp", trace_id=tid, tool=name, severity="ERROR", duration_ms=duration_ms)
         result = {
             "error": (
                 f"Tool '{name}' timed out after {timeout_s}s. "
@@ -232,10 +242,14 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
     except RuntimeError as e:
         # Embedder or store connectivity failure — return clean error to agent
+        duration_ms = round((time.monotonic() - t0) * 1000)
+        trace("tool_error", subsystem="mcp", trace_id=tid, tool=name, severity="ERROR", duration_ms=duration_ms, error=str(e))
         result = {"error": str(e)}
 
     except Exception as e:
         log.exception("Unexpected error in tool %s", name)
+        duration_ms = round((time.monotonic() - t0) * 1000)
+        trace("tool_error", subsystem="mcp", trace_id=tid, tool=name, severity="ERROR", duration_ms=duration_ms, error=str(e))
         result = {"error": f"Internal error: {e}"}
 
     return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
