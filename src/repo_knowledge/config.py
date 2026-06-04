@@ -11,11 +11,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# ── Qdrant ──────────────────────────────────────────────────────────────────
+# ── Qdrant ──────────────────────────────────────────────────────────────────────
 QDRANT_URL: str = os.getenv("QDRANT_URL", "http://100.70.3.86:6333")
 QDRANT_COLLECTION: str = os.getenv("QDRANT_COLLECTION", "code_chunks_nomic")
 
-# ── Ollama ───────────────────────────────────────────────────────────────────
+# ── Ollama ───────────────────────────────────────────────────────────────────────
 OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://100.70.3.86:11434")
 EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
@@ -32,6 +32,12 @@ EMBEDDING_DIM: int = int(os.getenv("EMBEDDING_DIM", "768"))
 
 # ── Search ───────────────────────────────────────────────────────────────────
 SEARCH_TOP_K: int = int(os.getenv("SEARCH_TOP_K", "5"))
+
+# ── MCP Server ───────────────────────────────────────────────────────────────
+# Maximum seconds a single tool call may run before the server returns a clean
+# timeout error. 90s is generous: Ollama cold-start on qwen3-embedding:4b takes
+# up to 90s over Tailscale. Increase if you see spurious timeouts on first run.
+TOOL_TIMEOUT_S: float = float(os.getenv("TOOL_TIMEOUT_S", "90.0"))
 
 # ── Scanner ──────────────────────────────────────────────────────────────────
 PROJECTS_ROOT: str = os.getenv("PROJECTS_ROOT", os.path.expanduser("~/Projects"))
