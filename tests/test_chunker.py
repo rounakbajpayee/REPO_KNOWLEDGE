@@ -157,7 +157,7 @@ def test_chunk_project_metadata(tmp_path):
     assert all(c.language == "python" for c in chunks)
 
 
-# ── Issue #3: Markdown h1 fixes ───────────────────────────────────────────────
+# ── Issue #3: Markdown h1 fixes ────────────────────────────────────────────────────
 
 MD_H1_SOURCE = """# Title
 
@@ -200,7 +200,7 @@ def test_markdown_long_section_splits_into_blocks(tmp_path):
     assert len(chunks) > 1
 
 
-# ── Issue #3: Import extraction scope ────────────────────────────────────────
+# ── Issue #3: Import extraction scope ────────────────────────────────────────────
 
 PY_METHOD_IMPORT = '''
 import os
@@ -222,7 +222,7 @@ def test_python_method_imports_not_in_header(tmp_path):
     assert "import sys" not in bar_chunk.content
 
 
-# ── Issue #3: Ignore extensions + egg-info dirs ───────────────────────────────
+# ── Issue #3: Ignore extensions + egg-info dirs ───────────────────────────────────────────
 
 def test_lock_file_returns_no_chunks(tmp_path):
     """package-lock.json (extension .lock after renaming) — .lock files ignored."""
@@ -247,3 +247,64 @@ def test_egg_info_dir_skipped_in_project(tmp_path):
     chunks = chunk_project(tmp_path, "PROJ")
     paths = [c.path for c in chunks]
     assert all(".egg-info" not in p for p in paths)
+
+
+# ── Issue #4: content_hash and file_mtime stamping ────────────────────────────
+
+def test_chunk_file_stamps_content_hash(tmp_path):
+    """Every chunk from a file must carry a non-empty sha256 content_hash."""
+    f = _write(tmp_path, "mod.py", PY_SOURCE)
+    chunks = chunk_file(f, tmp_path, "PROJ")
+    assert chunks
+    for chunk in chunks:
+        assert len(chunk.content_hash) == 64  # sha256 hex digest length
+        assert all(c in "0123456789abcdef" for c in chunk.content_hash)
+
+
+def test_chunk_file_all_chunks_share_same_hash(tmp_path):
+    """All chunks from the same file must share the same content_hash."""
+    f = _write(tmp_path, "mod.py", PY_SOURCE)
+    chunks = chunk_file(f, tmp_path, "PROJ")
+    assert chunks
+    hashes = {c.content_hash for c in chunks}
+    assert len(hashes) == 1
+
+
+def test_chunk_file_stamps_file_mtime(tmp_path):
+    """Every chunk must have a non-zero file_mtime matching the file's st_mtime."""
+    f = _write(tmp_path, "mod.py", PY_SOURCE)
+    expected_mtime = f.stat().st_mtime
+    chunks = chunk_file(f, tmp_path, "PROJ")
+    assert chunks
+    for chunk in chunks:
+        assert chunk.file_mtime == pytest.approx(expected_mtime, rel=1e-3)
+
+
+def test_chunk_file_accepts_precomputed_hash(tmp_path):
+    """If content_hash is supplied by the caller, chunk_file must use it as-is."""
+    f = _write(tmp_path, "mod.py", PY_SOURCE)
+    sentinel = "aabbccdd" * 8  # 64-char fake sha256
+    chunks = chunk_file(f, tmp_path, "PROJ", content_hash=sentinel)
+    assert chunks
+    for chunk in chunks:
+        assert chunk.content_hash == sentinel
+
+
+def test_chunk_file_accepts_precomputed_mtime(tmp_path):
+    """If file_mtime is supplied by the caller, chunk_file must use it as-is."""
+    f = _write(tmp_path, "mod.py", PY_SOURCE)
+    sentinel_mtime = 1_700_000_000.0
+    chunks = chunk_file(f, tmp_path, "PROJ", file_mtime=sentinel_mtime)
+    assert chunks
+    for chunk in chunks:
+        assert chunk.file_mtime == sentinel_mtime
+
+
+def test_different_files_have_different_hashes(tmp_path):
+    """Two files with different content must produce chunks with different hashes."""
+    f1 = _write(tmp_path, "a.py", "def alpha():\n    return 1\n")
+    f2 = _write(tmp_path, "b.py", "def beta():\n    return 2\n")
+    chunks_a = chunk_file(f1, tmp_path, "PROJ")
+    chunks_b = chunk_file(f2, tmp_path, "PROJ")
+    assert chunks_a and chunks_b
+    assert chunks_a[0].content_hash != chunks_b[0].content_hash
