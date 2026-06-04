@@ -8,18 +8,20 @@ Usage:
   # Index a single project by name
   python index.py --project LENS
 
-  # Index all, explicit root override
+  # Override projects root
   python index.py --root /path/to/projects
 """
 
+import time
 import click
 
 from repo_knowledge.knowledge import KnowledgeService
+from repo_knowledge.logger import log
 from repo_knowledge.scanner import scan_projects
 
 
 @click.command()
-@click.option("--project", default=None, help="Index a single project by name. Default: all projects.")
+@click.option("--project", default=None, help="Index a single project by name.")
 @click.option("--root", default=None, help="Override PROJECTS_ROOT from .env")
 def main(project: str | None, root: str | None) -> None:
     kwargs = {}
@@ -35,15 +37,26 @@ def main(project: str | None, root: str | None) -> None:
         projects_to_index = [p.name for p in discovered]
         click.echo(f"Discovered {len(projects_to_index)} project(s): {', '.join(projects_to_index)}")
 
+    t_total = time.monotonic()
     for name in projects_to_index:
-        click.echo(f"\n→ Indexing {name}...")
+        click.echo(f"\n\u2192 Indexing {name}...")
+        t0 = time.monotonic()
         result = svc.reindex_project(name)
+        elapsed = round(time.monotonic() - t0, 1)
         if "error" in result:
-            click.secho(f"  ✗ {result['error']}", fg="red")
+            click.secho(f"  \u2717 {result['error']} ({elapsed}s)", fg="red")
+            log("cli_index_error", project=name, error=result["error"], duration_s=elapsed)
         else:
-            click.secho(f"  ✓ {result['message']}", fg="green")
+            click.secho(
+                f"  \u2713 {result['message']} ({elapsed}s)",
+                fg="green",
+            )
+            log("cli_index_success", project=name,
+                chunks=result["chunks_indexed"], duration_s=elapsed)
 
-    click.echo("\nDone.")
+    total_elapsed = round(time.monotonic() - t_total, 1)
+    click.echo(f"\nDone in {total_elapsed}s.")
+    log("cli_index_all_complete", projects=len(projects_to_index), duration_s=total_elapsed)
 
 
 if __name__ == "__main__":
