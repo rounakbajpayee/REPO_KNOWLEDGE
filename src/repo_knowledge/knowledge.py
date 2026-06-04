@@ -42,6 +42,9 @@ class KnowledgeService:
         self._projects_cache_ts: float = 0.0
         self._projects_cache_lock = threading.Lock()
         self._vault_lock = threading.Lock()
+        from repo_knowledge.postgres_store import PostgresStore
+        self._pg = getattr(self._store, "_pg", None) or PostgresStore()
+
 
 
     def list_projects(self, trace_id: str | None = None) -> list[dict]:
@@ -265,12 +268,29 @@ class KnowledgeService:
         trace_id: str | None = None,
     ) -> dict:
         """
-        Append a timestamped decision entry to a Markdown memory file.
+        Append a timestamped decision entry to a Markdown memory file and PostgreSQL.
         Creates the vault directory and topic file if they do not exist.
         Thread-safe.
         """
         # Validate/slugify topic to avoid traversal vulnerabilities
-        topic = re.sub(r'[^a-zA-Z0-9_-]', '_', topic).lower()
+        slugified_topic = re.sub(r'[^a-zA-Z0-9_-]', '_', topic).lower()
+
+        # 1. Try writing to PostgreSQL
+        pg_err = None
+        try:
+            self._pg.log_decision(
+                topic=slugified_topic,
+                entry_name=name,
+                description=description,
+                rationale=rationale,
+                options_considered=options_considered
+            )
+        except Exception as e:
+            pg_err = str(e)
+            trace("warning", event_source="log_decision_db", message=f"Failed to log decision to Postgres: {e}",
+                  severity="WARNING", subsystem="knowledge", trace_id=trace_id)
+
+        # 2. Write to Markdown file
         vault_dir = Path(self._projects_root) / "knowledge_vault"
 
         with self._vault_lock:
@@ -281,7 +301,7 @@ class KnowledgeService:
                       severity="ERROR", subsystem="knowledge", trace_id=trace_id)
                 return {"error": f"Failed to create knowledge_vault directory: {e}"}
 
-            vault_file = vault_dir / f"{topic}.md"
+            vault_file = vault_dir / f"{slugified_topic}.md"
             now_str = datetime.now(timezone.utc).isoformat()
 
             # Format options_considered list if present
@@ -300,12 +320,12 @@ class KnowledgeService:
 
             if not vault_file.exists():
                 initial = f"""---
-topic: {topic}
+topic: {slugified_topic}
 created_at: {now_str}
 last_modified: {now_str}
 entries_count: 1
 ---
-# Decision Log: {topic.replace('_', ' ').title()}
+# Decision Log: {slugified_topic.replace('_', ' ').title()}
 
 {new_entry}"""
                 try:
@@ -349,8 +369,11 @@ entries_count: 1
                           severity="ERROR", subsystem="knowledge", trace_id=trace_id)
                     return {"error": f"Failed to update decision file: {e}"}
 
-        trace("log_decision", topic=topic, entry_name=name, subsystem="knowledge", trace_id=trace_id)
-        return {"topic": topic, "message": f"Successfully logged decision '{name}' under topic '{topic}'"}
+        trace("log_decision", topic=slugified_topic, entry_name=name, subsystem="knowledge", trace_id=trace_id)
+        msg = f"Successfully logged decision '{name}' under topic '{slugified_topic}'"
+        if pg_err:
+            msg += f" (Postgres write failed: {pg_err})"
+        return {"topic": slugified_topic, "message": msg}
 
     def get_decision_history(
         self,
@@ -361,14 +384,83 @@ entries_count: 1
     ) -> dict:
         """
         Retrieve chronological decision log entries for a topic.
+        Queries Postgres first, falling back to markdown if unavailable.
         To save token window, limits to last N entries by default.
         """
-        topic = re.sub(r'[^a-zA-Z0-9_-]', '_', topic).lower()
+        slugified_topic = re.sub(r'[^a-zA-Z0-9_-]', '_', topic).lower()
+
+        # Try loading from PostgreSQL
+        try:
+            entries_db = self._pg.get_decision_history(slugified_topic, limit=0, full_history=True)
+            total_count = len(entries_db)
+
+            # Slice according to limit/full_history
+            if not full_history and limit > 0:
+                ret_entries = entries_db[-limit:]
+                truncated = total_count > limit
+            else:
+                ret_entries = entries_db
+                truncated = False
+
+            # Reconstruct history markdown string to preserve format contract
+            history_parts = []
+            for entry in ret_entries:
+                entry_name = entry["name"]
+                logged_at = entry["logged_at"]
+                description = entry["description"]
+                rationale = entry["rationale"]
+                options_considered = entry.get("options_considered")
+
+                options_str = ""
+                if options_considered:
+                    options_str = "- **Options Considered:**\n"
+                    for opt in options_considered:
+                        opt_name = opt.get("name", "Unknown Option")
+                        opt_status = opt.get("status", "REJECTED")
+                        opt_rat = opt.get("rationale", "")
+                        marker = "[REJECTED]" if opt_status.upper() == "REJECTED" else "[SELECTED]"
+                        options_str += f"  - {marker} *{opt_name} ({opt_status}):* {opt_rat}\n"
+
+                history_parts.append(
+                    f"## [{logged_at}] {entry_name}\n- **Description:** {description}\n{options_str}- **Rationale:** {rationale}"
+                )
+
+            history_text = f"# Decision Log: {slugified_topic.replace('_', ' ').title()}\n\n" + "\n\n".join(history_parts)
+            if truncated:
+                history_text += f"\n\n*Note: History truncated. Showing last {limit} of {total_count} entries. Retrieve with full_history=true to view all.*"
+
+            # Create a mock frontmatter dict
+            frontmatter = {
+                "topic": slugified_topic,
+                "entries_count": str(total_count),
+            }
+            if entries_db:
+                frontmatter["created_at"] = entries_db[0]["logged_at"]
+                frontmatter["last_modified"] = entries_db[-1]["logged_at"]
+
+            trace("get_decision_history", topic=slugified_topic, limit=limit, full_history=full_history,
+                  total_entries=total_count, shown_entries=len(ret_entries),
+                  subsystem="knowledge", source="postgres", trace_id=trace_id)
+
+            return {
+                "topic": slugified_topic,
+                "frontmatter": frontmatter,
+                "history": history_text,
+                "total_entries": total_count,
+                "shown_entries": len(ret_entries),
+            }
+
+        except Exception as e:
+            trace("warning", event_source="get_decision_history_db",
+                  message=f"Failed to query decision history from Postgres: {e}. Falling back to Markdown.",
+                  severity="WARNING", subsystem="knowledge", trace_id=trace_id)
+
+        # Fallback to Markdown
         vault_dir = Path(self._projects_root) / "knowledge_vault"
-        vault_file = vault_dir / f"{topic}.md"
+        vault_file = vault_dir / f"{slugified_topic}.md"
 
         if not vault_file.exists():
-            return {"error": f"Decision log for topic '{topic}' does not exist"}
+            return {"error": f"Decision log for topic '{slugified_topic}' does not exist"}
 
         with self._vault_lock:
             try:
@@ -408,22 +500,134 @@ entries_count: 1
             ret_entries = entries
             truncated = False
 
-        fm_str = "---\n" + "\n".join(f"{k}: {v}" for k, v in frontmatter.items()) + "\n---\n" if frontmatter else ""
         history_text = intro + "\n\n" + "\n\n".join(ret_entries)
         if truncated:
             history_text += f"\n\n*Note: History truncated. Showing last {limit} of {total_count} entries. Retrieve with full_history=true to view all.*"
 
-        trace("get_decision_history", topic=topic, limit=limit, full_history=full_history,
+        trace("get_decision_history", topic=slugified_topic, limit=limit, full_history=full_history,
               total_entries=total_count, shown_entries=len(ret_entries),
-              subsystem="knowledge", trace_id=trace_id)
+              subsystem="knowledge", source="markdown", trace_id=trace_id)
 
         return {
-            "topic": topic,
+            "topic": slugified_topic,
             "frontmatter": frontmatter,
             "history": history_text,
             "total_entries": total_count,
             "shown_entries": len(ret_entries),
         }
+
+    def re_embed_all_projects(self, trace_id: str | None = None) -> dict:
+        """
+        Wipe the Qdrant collection and re-embed all chunks stored in PostgreSQL
+        using the currently active embedding model.
+        """
+        t0 = time.monotonic()
+        trace("re_embed_start", subsystem="knowledge", trace_id=trace_id)
+
+        # 1. Fetch all chunks from Postgres
+        try:
+            with self._pg._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT c.id, c.project, c.path, c.language, c.chunk_type, c.symbol, c.content, c.start_line, c.end_line, f.content_hash, f.file_mtime
+                        FROM chunks c
+                        JOIN files f ON c.file_id = f.id;
+                    """)
+                    chunks_data = [
+                        {
+                            "id": str(row[0]), "project": row[1], "path": row[2],
+                            "language": row[3], "chunk_type": row[4], "symbol": row[5],
+                            "content": row[6], "start_line": row[7], "end_line": row[8],
+                            "content_hash": row[9], "file_mtime": row[10]
+                        }
+                        for row in cur.fetchall()
+                    ]
+        except Exception as e:
+            trace("error", event_source="re_embed", message=f"Failed to fetch chunks from DB: {e}",
+                  severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+            return {"error": f"Failed to fetch chunks from database: {e}"}
+
+        if not chunks_data:
+            trace("re_embed_complete", message="No chunks found in database", duration_ms=0, subsystem="knowledge", trace_id=trace_id)
+            return {"message": "No chunks found in database to re-embed", "chunks_reembedded": 0}
+
+        # 2. Reset the Qdrant collection
+        try:
+            self._store._ensure_collection() # Ensure it's active/created first
+            self._store._client.delete_collection(self._store._collection)
+            self._store._collection_ready = False
+            self._store._ensure_collection() # Recreate it fresh
+        except Exception as e:
+            trace("error", event_source="re_embed", message=f"Failed to reset Qdrant collection: {e}",
+                  severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+            return {"error": f"Failed to reset Qdrant collection: {e}"}
+
+        # 3. Batch embed the text content and upsert to Qdrant
+        batch_size = 32
+        total_chunks = len(chunks_data)
+        total_batches = (total_chunks + batch_size - 1) // batch_size
+        now = datetime.now(timezone.utc).isoformat()
+
+        from qdrant_client.http import models as qdrant_models
+
+        for i in range(0, total_chunks, batch_size):
+            batch = chunks_data[i: i + batch_size]
+            batch_num = i // batch_size + 1
+            t_batch = time.monotonic()
+
+            try:
+                # Embed batch
+                texts = [c["content"] for c in batch]
+                vectors = self._embedder.embed_batch(texts)
+
+                # Prepare Qdrant points
+                points = [
+                    qdrant_models.PointStruct(
+                        id=c["id"],
+                        vector=vec,
+                        payload={
+                            "project": c["project"],
+                            "path": c["path"],
+                            "language": c["language"],
+                            "chunk_type": c["chunk_type"],
+                            "symbol": c["symbol"],
+                            "content": c["content"],
+                            "start_line": c["start_line"],
+                            "end_line": c["end_line"],
+                            "embedding_model": self._store._embedding_model,
+                            "indexed_at": now,
+                            "content_hash": c["content_hash"],
+                            "file_mtime": c["file_mtime"],
+                        }
+                    )
+                    for c, vec in zip(batch, vectors)
+                ]
+
+                # Upsert to Qdrant
+                self._store._client.upsert(
+                    collection_name=self._store._collection,
+                    points=points
+                )
+
+                duration_ms = round((time.monotonic() - t_batch) * 1000)
+                trace("embed_batch", project="all_reembed", batch=batch_num,
+                      total_batches=total_batches, size=len(batch), duration_ms=duration_ms,
+                      subsystem="knowledge", trace_id=trace_id)
+
+            except Exception as e:
+                trace("error", event_source="re_embed_batch", batch=batch_num,
+                      message=f"Failed to embed/upsert batch: {e}",
+                      severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+                return {"error": f"Failed to embed/upsert batch {batch_num}: {e}"}
+
+        duration_ms = round((time.monotonic() - t0) * 1000)
+        trace("re_embed_complete", chunks=total_chunks, duration_ms=duration_ms, subsystem="knowledge", trace_id=trace_id)
+        self._invalidate_projects_cache()
+        return {
+            "message": f"Successfully re-embedded {total_chunks} chunks using model '{self._store._embedding_model}'",
+            "chunks_reembedded": total_chunks
+        }
+
 
 
 

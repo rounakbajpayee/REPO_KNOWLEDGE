@@ -6,8 +6,10 @@ in KnowledgeService.
 import threading
 import time
 from pathlib import Path
+from unittest.mock import MagicMock
 import pytest
 from repo_knowledge.knowledge import KnowledgeService
+
 
 
 @pytest.fixture
@@ -16,7 +18,16 @@ def temp_vault_service(tmp_path: Path) -> KnowledgeService:
     # We create a dummy PROJECTS_ROOT inside tmp_path
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    return KnowledgeService(projects_root=projects_root)
+    svc = KnowledgeService(projects_root=projects_root)
+    
+    # Mock PostgresStore to raise exceptions so that we test Markdown logic and fallback
+    mock_pg = MagicMock()
+    mock_pg.log_decision.side_effect = Exception("Database offline in unit tests")
+    mock_pg.get_decision_history.side_effect = Exception("Database offline in unit tests")
+    svc._pg = mock_pg
+    
+    return svc
+
 
 
 def test_log_decision_creates_file_with_frontmatter(temp_vault_service: KnowledgeService) -> None:

@@ -47,15 +47,42 @@ _queue: queue.SimpleQueue[str] = queue.SimpleQueue()
 
 
 def _writer_loop() -> None:
-    """Drain the queue and append each line to the log file. Never dies."""
+    """Drain the queue and append each line to the log file and PostgreSQL. Never dies."""
+    from repo_knowledge.postgres_store import PostgresStore
+    pg = None
+    try:
+        pg = PostgresStore()
+    except Exception:
+        pass
+
     while True:
         line = _queue.get()  # blocks until an item arrives
+        # 1. Write to JSONL log file
         try:
             _LOG_DIR.mkdir(parents=True, exist_ok=True)
             with _LOG_PATH.open("a", encoding="utf-8") as fh:
                 fh.write(line + "\n")
         except OSError:
-            pass  # silently discard on disk error — never let the thread die
+            pass  # silently discard on disk error
+
+        # 2. Write to PostgreSQL database
+        try:
+            record = json.loads(line)
+            if pg is None:
+                pg = PostgresStore()
+            pg.log_audit_trace(
+                ts_str=record["ts"],
+                trace_id=record.get("trace_id"),
+                event=record["event"],
+                severity=record.get("severity", "INFO"),
+                subsystem=record.get("subsystem", "unknown"),
+                duration_ms=record.get("duration_ms"),
+                payload=record.get("payload")
+            )
+        except Exception:
+            pg = None  # Force re-initialization next time if it fails
+            pass
+
 
 
 _writer_thread = threading.Thread(target=_writer_loop, daemon=True, name="tracer-writer")

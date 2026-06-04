@@ -14,11 +14,13 @@ from repo_knowledge.chunker import Chunk
 
 def _make_store(mock_client: MagicMock) -> Store:
     """Return a Store whose internal client is fully replaced by a mock."""
+    mock_pg = MagicMock()
     with patch("repo_knowledge.store.QdrantClient", return_value=mock_client):
-        store = Store(url="http://mock:6333")
+        store = Store(url="http://mock:6333", postgres_store=mock_pg)
     # Mark collection as ready so _ensure_collection is a no-op in tests
     store._collection_ready = True
     return store
+
 
 
 def _make_chunk(
@@ -138,39 +140,21 @@ def test_delete_file_uses_correct_path_value():
 def test_get_indexed_file_hashes_returns_path_hash_map():
     mock_client = MagicMock()
     store = _make_store(mock_client)
-    records = [
-        _make_record("src/a.py", "hash_a"),
-        _make_record("src/b.py", "hash_b"),
-    ]
-    mock_client.scroll.return_value = _scroll_page(records, next_offset=None)
+    mock_hash_map = {"src/a.py": "hash_a", "src/b.py": "hash_b"}
+    store._pg.get_indexed_file_hashes.return_value = mock_hash_map
     result = store.get_indexed_file_hashes("PROJ")
-    assert result == {"src/a.py": "hash_a", "src/b.py": "hash_b"}
+    assert result == mock_hash_map
+    store._pg.get_indexed_file_hashes.assert_called_once_with("PROJ")
 
 
-def test_get_indexed_file_hashes_old_chunks_mapped_to_empty_string():
-    """Chunks without content_hash in payload must map to '' (not raise)."""
+def test_get_indexed_file_hashes_empty_when_no_files():
     mock_client = MagicMock()
     store = _make_store(mock_client)
-    rec = MagicMock()
-    rec.payload = {"path": "src/old.py"}  # no content_hash key
-    mock_client.scroll.return_value = _scroll_page([rec], next_offset=None)
+    store._pg.get_indexed_file_hashes.return_value = {}
     result = store.get_indexed_file_hashes("PROJ")
-    assert result == {"src/old.py": ""}
+    assert result == {}
+    store._pg.get_indexed_file_hashes.assert_called_once_with("PROJ")
 
-
-def test_get_indexed_file_hashes_paginates():
-    """scroll must be called again when next_offset is not None."""
-    mock_client = MagicMock()
-    store = _make_store(mock_client)
-    page1 = [_make_record("src/a.py", "hash_a")]
-    page2 = [_make_record("src/b.py", "hash_b")]
-    mock_client.scroll.side_effect = [
-        _scroll_page(page1, next_offset="cursor_1"),
-        _scroll_page(page2, next_offset=None),
-    ]
-    result = store.get_indexed_file_hashes("PROJ")
-    assert len(result) == 2
-    assert mock_client.scroll.call_count == 2
 
 
 # ── search ─────────────────────────────────────────────────────────────────────────────────

@@ -14,8 +14,15 @@ click>=8.1.0
 # Utilities
 python-dotenv>=1.0.0
 watchdog>=6.0.0
+psycopg2-binary>=2.9.0
+
 
 
 # Testing
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
+
+# Web UI Dashboard
+fastapi>=0.110.0
+uvicorn>=0.28.0
+

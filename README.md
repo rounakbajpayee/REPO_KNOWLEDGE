@@ -34,7 +34,7 @@ pip install -r requirements.txt
 
 # 3. Configure
 cp .env.example .env
-# Edit .env — set PROJECTS_ROOT, confirm QDRANT_URL and OLLAMA_URL
+# Edit .env — set PROJECTS_ROOT, confirm QDRANT_URL, OLLAMA_URL, and POSTGRES_HOST / credentials
 
 # 4. Pull the embedding model in Ollama (on Mac)
 ollama pull nomic-embed-text
@@ -44,10 +44,17 @@ ollama pull nomic-embed-text
 python index.py                    # index everything under PROJECTS_ROOT
 python index.py --project LENS     # index a single project
 
-# 6. Run the OS Filewatcher (Optional, runs in background)
+# 6. Run the OS Filewatcher (Runs in background on Windows login)
+# Register silent watcher startup on Windows:
+python register_startup.py
+# Or run manually in foreground:
 python watcher.py                  # auto-reindexes on file saves with 5s debounce
 
-# 7. Post-Mortem Decision Extraction (Optional)
+# 7. Start the Web UI Dashboard Monitor (Optional)
+python -m repo_knowledge.web_ui.server
+# Open http://localhost:8000 in your browser to monitor indexing/traces
+
+# 8. Post-Mortem Decision Extraction (Optional)
 python memory_helper.py --diff     # reconstructs decisions from workspace git diffs
 
 
@@ -114,6 +121,10 @@ Retrieve the chronological list of decisions logged under a topic.
 - Input: `topic` (string), optional `limit` (int, default 3), optional `full_history` (boolean, default false)
 - Defaults to returning the last 3 entries to preserve the agent's context window.
 
+### `re_embed`
+Wipe Qdrant vector index and re-embed all code chunks from the PostgreSQL store using the current embedding model. Excellent for lossless model swapping.
+- No input required
+
 ---
 
 ## Configuration Reference
@@ -135,10 +146,13 @@ Retrieve the chronological list of decisions logged under a topic.
 ## Switching Embedding Models
 
 1. Pull the new model in Ollama: `ollama pull <model>`
-2. Update `.env`: `EMBEDDING_MODEL`, `EMBEDDING_DIM`, `QDRANT_COLLECTION` (new slug)
-3. Reindex: `python index.py`
+2. Update `.env`: `EMBEDDING_MODEL`, `EMBEDDING_DIM`, and `QDRANT_COLLECTION` (new slug name)
+3. Re-embed losslessly:
+   - Click **Lossless Re-embed Vector Cache** on the Dashboard Web UI
+   - Or run the MCP tool: `re_embed`
 
-The old collection is preserved. You can run both and compare — see ARCHITECTURE.md for benchmarking design.
+The new vector index cache will be rebuilt from PostgreSQL text records, without re-scanning or re-parsing the original code files on disk.
+
 
 ---
 

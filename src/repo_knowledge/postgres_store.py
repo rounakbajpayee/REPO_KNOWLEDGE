@@ -1,0 +1,355 @@
+"""
+postgres_store.py — PostgreSQL relational storage manager for REPO_KNOWLEDGE.
+"""
+
+import json
+from datetime import datetime, timezone
+import psycopg2
+from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+from psycopg2.extras import Json
+from repo_knowledge.config import (
+    POSTGRES_HOST,
+    POSTGRES_PORT,
+    POSTGRES_USER,
+    POSTGRES_PASSWORD,
+    POSTGRES_DB,
+)
+
+
+class PostgresStore:
+    def __init__(
+        self,
+        host=POSTGRES_HOST,
+        port=POSTGRES_PORT,
+        user=POSTGRES_USER,
+        password=POSTGRES_PASSWORD,
+        database=POSTGRES_DB,
+    ):
+        self._host = host
+        self._port = port
+        self._user = user
+        self._password = password
+        self._db = database
+        self._initialized = False
+
+    def _create_database_if_not_exists(self) -> None:
+        """Connect to default 'postgres' database to check/create the target database."""
+        try:
+            conn = psycopg2.connect(
+                host=self._host,
+                port=self._port,
+                user=self._user,
+                password=self._password,
+                database="postgres",
+                connect_timeout=3,
+            )
+            conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (self._db,))
+                if not cur.fetchone():
+                    cur.execute(f'CREATE DATABASE "{self._db}"')
+            conn.close()
+        except Exception:
+            pass  # Fall through if we can't create or it already exists
+
+    def _ensure_tables(self) -> None:
+        """Run DDL queries to verify and construct the relational schema."""
+        if self._initialized:
+            return
+
+        self._create_database_if_not_exists()
+
+        try:
+            conn = psycopg2.connect(
+                host=self._host,
+                port=self._port,
+                user=self._user,
+                password=self._password,
+                database=self._db,
+                connect_timeout=5,
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"Cannot connect to PostgreSQL at {self._host}:{self._port}. "
+                f"Check credentials and make sure Docker/Local instance is running. Error: {e}"
+            )
+
+        with conn:
+            with conn.cursor() as cur:
+                # Projects table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS projects (
+                        id SERIAL PRIMARY KEY,
+                        name VARCHAR(255) UNIQUE NOT NULL,
+                        stack VARCHAR(255),
+                        last_indexed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+
+                # Files table (cascades deletes to chunks)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS files (
+                        id SERIAL PRIMARY KEY,
+                        project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+                        path VARCHAR(1024) NOT NULL,
+                        content_hash VARCHAR(64) NOT NULL,
+                        file_mtime DOUBLE PRECISION NOT NULL,
+                        last_indexed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(project_id, path)
+                    );
+                """)
+
+                # Chunks table. ID is UUID (corresponds to Qdrant vector UUID)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS chunks (
+                        id UUID PRIMARY KEY,
+                        file_id INTEGER REFERENCES files(id) ON DELETE CASCADE,
+                        project VARCHAR(255) NOT NULL,
+                        path VARCHAR(1024) NOT NULL,
+                        language VARCHAR(64),
+                        chunk_type VARCHAR(64),
+                        symbol VARCHAR(255),
+                        content TEXT NOT NULL,
+                        start_line INTEGER,
+                        end_line INTEGER,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+
+                # Decision history vault table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS decision_logs (
+                        id SERIAL PRIMARY KEY,
+                        topic VARCHAR(255) NOT NULL,
+                        entry_name VARCHAR(255) NOT NULL,
+                        description TEXT NOT NULL,
+                        rationale TEXT NOT NULL,
+                        options_considered JSONB,
+                        logged_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+
+                # System/audit logs table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS audit_logs (
+                        id SERIAL PRIMARY KEY,
+                        ts TIMESTAMP WITH TIME ZONE NOT NULL,
+                        trace_id VARCHAR(8),
+                        event VARCHAR(255) NOT NULL,
+                        severity VARCHAR(10) NOT NULL,
+                        subsystem VARCHAR(64) NOT NULL,
+                        duration_ms INTEGER,
+                        payload JSONB
+                    );
+                """)
+        conn.close()
+        self._initialized = True
+
+    def health_check(self) -> bool:
+        """Returns True if Postgres is reachable, False otherwise."""
+        try:
+            conn = psycopg2.connect(
+                host=self._host,
+                port=self._port,
+                user=self._user,
+                password=self._password,
+                database=self._db,
+                connect_timeout=2,
+            )
+            conn.close()
+            return True
+        except Exception:
+            # Try to connect to default database if target db is not created yet
+            try:
+                conn = psycopg2.connect(
+                    host=self._host,
+                    port=self._port,
+                    user=self._user,
+                    password=self._password,
+                    database="postgres",
+                    connect_timeout=2,
+                )
+                conn.close()
+                return True
+            except Exception:
+                return False
+
+    def _get_connection(self):
+        self._ensure_tables()
+        return psycopg2.connect(
+            host=self._host,
+            port=self._port,
+            user=self._user,
+            password=self._password,
+            database=self._db,
+        )
+
+    def upsert_project(self, name: str, stack: str) -> int:
+        """Insert or update project metadata, returning project database ID."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO projects (name, stack, last_indexed_at)
+                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (name) DO UPDATE 
+                    SET stack = EXCLUDED.stack, last_indexed_at = CURRENT_TIMESTAMP
+                    RETURNING id;
+                """, (name, stack))
+                return cur.fetchone()[0]
+
+    def register_file(self, project_id: int, path: str, content_hash: str, file_mtime: float) -> int:
+        """Insert or update file hash state, returning file database ID."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO files (project_id, path, content_hash, file_mtime, last_indexed_at)
+                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (project_id, path) DO UPDATE
+                    SET content_hash = EXCLUDED.content_hash,
+                        file_mtime = EXCLUDED.file_mtime,
+                        last_indexed_at = CURRENT_TIMESTAMP
+                    RETURNING id;
+                """, (project_id, path, content_hash, file_mtime))
+                return cur.fetchone()[0]
+
+    def delete_file(self, project_name: str, path: str) -> None:
+        """Delete file and all its associated chunks recursively (via foreign keys)."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    DELETE FROM files 
+                    WHERE path = %s AND project_id = (
+                        SELECT id FROM projects WHERE name = %s
+                    );
+                """, (path, project_name))
+
+    def delete_project(self, project_name: str) -> None:
+        """Delete project registry and all associated files/chunks recursively."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM projects WHERE name = %s", (project_name,))
+
+    def upsert_chunks(self, file_id: int, project: str, path: str, chunks: list, chunk_uuids: list[str]) -> None:
+        """Save raw chunk text records transactionally in the database."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                for chunk, cuuid in zip(chunks, chunk_uuids):
+                    cur.execute("""
+                        INSERT INTO chunks (id, file_id, project, path, language, chunk_type, symbol, content, start_line, end_line)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (id) DO UPDATE
+                        SET content = EXCLUDED.content,
+                            start_line = EXCLUDED.start_line,
+                            end_line = EXCLUDED.end_line;
+                    """, (
+                        cuuid, file_id, project, path, chunk.language,
+                        chunk.chunk_type, chunk.symbol, chunk.content,
+                        chunk.start_line, chunk.end_line
+                    ))
+
+    def get_indexed_file_hashes(self, project_name: str) -> dict[str, str]:
+        """Return a mapping of {file_path: content_hash} stored in PostgreSQL."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT path, content_hash 
+                    FROM files 
+                    WHERE project_id = (SELECT id FROM projects WHERE name = %s);
+                """, (project_name,))
+                return {row[0]: row[1] for row in cur.fetchall()}
+
+    def get_all_chunks(self) -> list[dict]:
+        """Return all code chunks stored in the relational database."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, project, path, language, chunk_type, symbol, content, start_line, end_line 
+                    FROM chunks;
+                """)
+                return [
+                    {
+                        "id": str(row[0]), "project": row[1], "path": row[2],
+                        "language": row[3], "chunk_type": row[4], "symbol": row[5],
+                        "content": row[6], "start_line": row[7], "end_line": row[8]
+                    }
+                    for row in cur.fetchall()
+                ]
+
+    def log_decision(self, topic: str, entry_name: str, description: str, rationale: str, options_considered: list | None) -> None:
+        """Save a decision card entry in PostgreSQL."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO decision_logs (topic, entry_name, description, rationale, options_considered, logged_at)
+                    VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP);
+                """, (topic, entry_name, description, rationale, Json(options_considered) if options_considered else None))
+
+    def get_decision_history(self, topic: str, limit: int = 3, full_history: bool = False) -> list[dict]:
+        """Query decision logs from PostgreSQL."""
+        query = """
+            SELECT topic, entry_name, description, rationale, options_considered, logged_at 
+            FROM decision_logs 
+            WHERE topic = %s 
+            ORDER BY logged_at ASC
+        """
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, (topic,))
+                rows = cur.fetchall()
+
+        entries = [
+            {
+                "topic": r[0], "name": r[1], "description": r[2],
+                "rationale": r[3], "options_considered": r[4], "logged_at": r[5].isoformat()
+            }
+            for r in rows
+        ]
+        if not full_history and limit > 0:
+            return entries[-limit:]
+        return entries
+
+    def log_audit_trace(self, ts_str: str, trace_id: str | None, event: str, severity: str, subsystem: str, duration_ms: int | None, payload: dict | None) -> None:
+        """Insert a system trace record transactionally in PostgreSQL."""
+        try:
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        except ValueError:
+            ts = datetime.now(timezone.utc)
+
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO audit_logs (ts, trace_id, event, severity, subsystem, duration_ms, payload)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s);
+                """, (ts, trace_id, event, severity, subsystem, duration_ms, Json(payload) if payload else None))
+
+    def list_projects(self) -> list[dict]:
+        """Return all projects from database."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT name, stack, last_indexed_at FROM projects ORDER BY name ASC;")
+                return [
+                    {"name": r[0], "stack": r[1], "last_indexed_at": r[2].isoformat()}
+                    for r in cur.fetchall()
+                ]
+
+    def get_audit_logs(self, limit: int = 100, severity: str | None = None) -> list[dict]:
+        """Query the structured trace logs."""
+        query = "SELECT ts, trace_id, event, severity, subsystem, duration_ms, payload FROM audit_logs "
+        params = []
+        if severity:
+            query += "WHERE severity = %s "
+            params.append(severity)
+        query += "ORDER BY id DESC LIMIT %s;"
+        params.append(limit)
+
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, tuple(params))
+                return [
+                    {
+                        "ts": r[0].isoformat(), "trace_id": r[1], "event": r[2],
+                        "severity": r[3], "subsystem": r[4], "duration_ms": r[5],
+                        "payload": r[6]
+                    }
+                    for r in cur.fetchall()
+                ]

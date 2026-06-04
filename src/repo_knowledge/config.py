@@ -15,6 +15,14 @@ load_dotenv()
 QDRANT_URL: str = os.getenv("QDRANT_URL", "http://100.70.3.86:6333")
 QDRANT_COLLECTION: str = os.getenv("QDRANT_COLLECTION", "code_chunks_nomic")
 
+# ── PostgreSQL ─────────────────────────────────────────────────────────
+POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "192.168.0.234")
+POSTGRES_PORT: int = int(os.getenv("POSTGRES_PORT", "5434"))
+POSTGRES_USER: str = os.getenv("POSTGRES_USER", "oracle")
+POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "3YZmch87tlXn4DmEmIIauuu6K")
+POSTGRES_DB: str = os.getenv("POSTGRES_DB", "repo_knowledge")
+
+
 # ── Ollama ───────────────────────────────────────────────────────────────
 OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://100.70.3.86:11434")
 EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")

@@ -15,79 +15,64 @@ Coding agents were exhausting their context windows loading entire codebases. Th
 ```
 index.py (CLI) or watcher.py (Auto-watcher)
     └── KnowledgeService (knowledge.py)
-            ├── Scanner (scanner.py)        — discovers Git repos
-            ├── Chunker (chunker.py)        — files → indexed chunks
-            ├── Embedder (embedder.py)      — text → vectors via Ollama
-            └── Store (store.py)            — Qdrant read/write
+            ├── Scanner (scanner.py)         — discovers Git repos
+            ├── Chunker (chunker.py)         — files → chunks
+            ├── Embedder (embedder.py)       — text → vectors via Ollama
+            ├── PostgresStore (postgres_store.py) — Absolute Source of Truth (chunks, files, logs)
+            └── Store (store.py)             — Qdrant Vector Cache (linked by UUID)
 
-mcp_server.py or memory_helper.py (Memory post-mortem)
-    └── KnowledgeService                   — thin adapter/API calls
-
+mcp_server.py or Web UI Dashboard (server.py)
+    └── KnowledgeService                    — thin adapter/API calls
 ```
 
-**Key rule:** `mcp_server.py` is a transport adapter. It has no business logic. All logic lives in `KnowledgeService`. Future transports (REST, gRPC) call `KnowledgeService` directly.
+**Key rule:** `mcp_server.py` and `server.py` are transport adapters. They have no business logic. All logic lives in `KnowledgeService`.
 
 ---
 
 ## Component Responsibilities
 
 ### config.py
-Single source of truth for all configuration. Reads from env vars with defaults. No other module hardcodes URLs or constants.
+Single source of truth for all configuration. Reads from env vars with defaults. Includes PostgreSQL configuration parameters for host, port, user, password, and database.
 
-### scanner.py
-Discovers Git repositories one level deep under `PROJECTS_ROOT`. A directory is a project if it has a `.git` folder. Also does heuristic stack detection (checks for `pyproject.toml`, `package.json`, etc.).
-
-### chunker.py
-Converts files into `Chunk` objects. Strategy by file type:
-
-| File type | Strategy | Rationale |
-|-----------|----------|-----------|
-| `.py` | stdlib `ast` module — one chunk per top-level function/class. Imports prepended to each chunk. | AST is stdlib, handles decorators/async correctly |
-| `.ts/.tsx/.js/.jsx` | Regex boundary split on function/class/arrow declarations | tree-sitter deferred to V2 |
-| `.md` | Split on `##` headers | Sections are the natural unit |
-| Everything else | 60-line fixed split, 10-line overlap | Safe fallback |
-
-**Known limitation:** JS/TS regex chunker will misfire on some edge cases (default exports, HOCs, etc.). Acceptable for MVP. V2 replaces with tree-sitter.
-
-### embedder.py
-`Embedder` is a Protocol (structural typing). `OllamaEmbedder` is the only implementation for now. To swap models:
-1. Change `EMBEDDING_MODEL` and `EMBEDDING_DIM` in `.env`
-2. Change `QDRANT_COLLECTION` to a new model-slug name
-3. Reindex
-
-Never change the collection name without changing the model — dimensions must match.
+### postgres_store.py
+The absolute Source of Truth for the relational database schema:
+- **Projects table:** Tracks scanned workspace names, tech stacks, and last indexing timestamps.
+- **Files table:** Stores file paths, content hashes, and mtimes.
+- **Chunks table:** Stores raw text content of chunks mapped to file IDs and primary key UUIDs (matching Qdrant point IDs).
+- **Decision logs table:** Stores chronological decision logs with parameters.
+- **Audit logs table:** Stores trace records asynchronously.
+Handles automatic DDL schema migrations, database setup, and connection pools.
 
 ### store.py
-All Qdrant operations. The `project` field in every chunk payload is a filterable keyword field — this is load-bearing for `delete_project()` used during reindexing. Do not remove it.
+Manages Qdrant vector index transactions. Only acts as a high-performance vector similarity cache. Point IDs correspond to UUIDs in PostgreSQL's `chunks` table.
 
-Collection is created on first run if missing. Uses cosine distance.
+### scanner.py
+Discovers Git repositories one level deep under `PROJECTS_ROOT`. A directory is a project if it has a `.git` folder. Also does heuristic stack detection.
+
+### chunker.py
+Converts files into `Chunk` objects. Strategy by file type: python `ast` for functions/classes, regex declarations for JS/TS, header split for markdown, fixed-line split for others.
+
+### embedder.py
+`Embedder` is a Protocol. `OllamaEmbedder` is the default. Supports model swaps without parsing files again.
 
 ### knowledge.py
-Pure Python. No MCP dependency. Public API:
-- `list_projects(trace_id?)` — scanner + store combined view (TTL cached for 30s)
-- `get_project_context(name, trace_id?)` — README + tree + stack in one call
-- `search(query, project?, top_k?, trace_id?)` — embed query → Qdrant search (deduplicated by content hash, similarity threshold applied, search quality classified)
-- `get_file(project, path, trace_id?)` — raw file read
-- `reindex_project(name, force?, trace_id?)` — incremental reindexing by default, only chunking/embedding changed/new files; deletes stale/removed files. Set `force=True` to wipe and fully rebuild.
-- `log_decision(topic, name, description, rationale, options_considered?, trace_id?)` — appends a structured, timestamped decision log inside `knowledge_vault/<topic>.md` with YAML frontmatter.
-- `get_decision_history(topic, limit?, full_history?, trace_id?)` — returns the chronological decision entries for a topic, defaulting to returning only the last `limit` (3) entries to save context window tokens.
+Pure Python. No transport dependency. Exposes APIs for scanning, retrieval, and decision vault.
+- `reindex_project(name, force?)` — incremental checks compare local file hashes against the PostgreSQL `files` table (fast database query instead of scrolling Qdrant).
+- `re_embed_all_projects()` — wipes the Qdrant collection, queries all raw text chunks from PostgreSQL, batch-embeds them using the active model, and recreates the Qdrant vector cache.
+- `log_decision(...)` / `get_decision_history(...)` — writes to both Markdown vault (Obsidian compatibility) and PostgreSQL `decision_logs` table (fast query response), falling back to Markdown if Postgres is offline.
 
 ### watcher.py
-A persistent background service utilizing Python's `watchdog` library (binds to native OS-push APIs like Windows `ReadDirectoryChangesW` or macOS `FSEvents`). Monitors `PROJECTS_ROOT` recursively for file saves, filters events by supported extensions and ignore directories, and triggers a debounced incremental reindex (5-second idle timer) for the affected project.
+Recursive directory change watcher (`watchdog`). Debounces indexing and calls `reindex_project` incrementally. Runs silently on Windows startup via registered batch script.
 
-### memory_helper.py
-A CLI post-mortem decision recovery script. Queries local Ollama chat models (like Qwen Coder or DeepSeek R1) to analyze workspace git diffs, recent commits, or local client logs, structures the technical choices into a structured decision payload, and logs them to the vault. Implements safety guardrails by using compressed diff representation (`-U1`) and aggressively truncating payloads to 8,000 characters to prevent context window overload.
+### Web UI Dashboard (`src/repo_knowledge/web_ui/`)
+- **Backend (server.py):** FastAPI application exposing status monitors, index stats, sandbox search, reindexing, and re-embedding. Features SSE (Server-Sent Events) streaming from `audit_logs` table.
+- **Frontend (index.html):** SPA dashboard designed with a dark glassmorphism system (tailored HSL colors, Outfit/Space Grotesk typography) containing tabs for workspace health lights, sandbox playground, and active log console.
 
 ### tracer.py
-Structured JSONL tracer carrying timestamp, trace ID, event, severity, subsystem, duration, and payload. Writes asynchronously in the background. All lines logged during a single MCP tool call share the same `trace_id`.
+Structured JSONL tracer asynchronously writing records to the `repo_knowledge.jsonl` file and transactionally appending audit traces to PostgreSQL `audit_logs` table via a background daemon thread.
 
 ### mcp_server.py
-Thin MCP adapter over `KnowledgeService`. Uses `stdio` transport (MCP default). Handles:
-- Tool listing (exposing search, project context, and decision vault logging/history retrieval tools)
-- Argument validation
-- `RuntimeError` from embedder/store → clean `{"error": "..."}` to agent
-- Startup health checks (warns but doesn't block)
-
+Exposes the tools interface to LLM client tools (`list_projects`, `get_project_context`, `search_codebase`, `get_file`, `reindex_project`, `log_decision`, `get_decision_history`, `re_embed`).
 
 ---
 
@@ -96,87 +81,36 @@ Thin MCP adapter over `KnowledgeService`. Uses `stdio` transport (MCP default). 
 ### Indexing
 ```
 index.py --project LENS
-  → scan_projects() → finds LENS at ~/Projects/LENS
-  → chunk_project(LENS) → list[Chunk]
-  → embedder.embed_batch([chunk.content, ...]) → list[vector]
-  → store.delete_project("LENS")   ← clean slate first
-  → store.upsert_chunks(chunks, vectors)
+  → scan_projects()
+  → chunk_project(LENS)
+  → register_file() & upsert_chunks() → writes raw text to PostgreSQL
+  → embedder.embed_batch([chunk.content, ...])
+  → store.upsert_chunks() → writes points with PostgreSQL chunk UUIDs to Qdrant
 ```
 
 ### Search
 ```
-Agent: search_codebase("how does auth work", project="LENS")
-  → embedder.embed("how does auth work") → vector
-  → store.search(vector, top_k=5, project="LENS")
-  → returns [{path, symbol, content, score}, ...]
+Agent: search_codebase("query", project="LENS")
+  → embedder.embed("query") → vector
+  → store.search(vector) → queries Qdrant vector index
+  → returns matching payloads with score (fallback to PostgreSQL if payload cache is missed)
 ```
 
----
-
-## Payload Schema (Qdrant)
-
-Every vector point stores:
-
-```json
-{
-  "project":         "LENS",
-  "path":            "src/ocr/service.py",
-  "language":        "python",
-  "chunk_type":      "function",
-  "symbol":          "process_image",
-  "content":         "...",
-  "start_line":      42,
-  "end_line":        78,
-  "content_hash":    "sha256...",
-  "file_mtime":      1700000000.0,
-  "embedding_model": "nomic-embed-text",
-  "indexed_at":      "2026-01-01T00:00:00+00:00"
-}
+### Lossless Model Swap (Re-embedding)
 ```
-
-`embedding_model` is stored per-chunk to support future benchmarking across models.
-
----
-
-## Benchmarking Design (V2, not yet built)
-
-To benchmark two embedding models side by side:
-1. Set `EMBEDDING_MODEL=model-a`, `QDRANT_COLLECTION=code_chunks_model_a` → index
-2. Set `EMBEDDING_MODEL=model-b`, `QDRANT_COLLECTION=code_chunks_model_b` → index
-3. Run identical queries against both collections, compare scores
-
-No schema migration needed — collections are independent.
+re_embed tool / Web UI
+  → Qdrant collection deleted & recreated
+  → Postgres: SELECT c.content, c.id FROM chunks JOIN files ...
+  → embedder.embed_batch(all_contents) using new EMBEDDING_MODEL
+  → Qdrant: upsert new vectors using original PostgreSQL UUIDs
+```
 
 ---
 
 ## Infrastructure
 
-- **Qdrant:** `http://100.70.3.86:6333` (Mac Mini via Tailscale)
-- **Ollama:** `http://100.70.3.86:11434` (Mac Mini via Tailscale)
-- **Default model:** `nomic-embed-text` (768-dim) — swap to `qwen3-embed` (1024-dim) when pulled
-- **Python:** 3.12
-
----
-
-## Deferred Work (do not implement without a spec)
-
-| Item | Reason deferred |
-|------|----------------|
-| tree-sitter for JS/TS | Native dependency, not worth it for MVP |
-| Per-file summaries | Adds indexing cost, design needed |
-| Symbol index | V2 feature, separate collection |
-| Architecture knowledge extraction (README, ADR) | V2 feature |
-| Benchmarking tool UI | Design deferred, data model already supports it |
-| OS-agnostic client deploy script | After client deploy spec |
-
-
----
-
-## Adding a New Transport (e.g. REST API)
-
-Do NOT add logic to `mcp_server.py`.
-
-1. Create `src/repo_knowledge/api_server.py` (FastAPI or whatever)
-2. Import and instantiate `KnowledgeService`
-3. Map HTTP endpoints to service methods
-4. Done — all logic is already in `knowledge.py`
+- **PostgreSQL 16:** Running on Mac Mini at `192.168.0.234:5434` (database `repo_knowledge`).
+- **Qdrant:** Running on Mac Mini at `192.168.0.234:6333`.
+- **Ollama:** Running on Mac Mini at `192.168.0.234:11434`.
+- **Dashboard Web UI:** `http://localhost:8000`.
+- **Filewatcher Startup:** Silent startup registered in Windows Startup folder (`shell:startup`).
