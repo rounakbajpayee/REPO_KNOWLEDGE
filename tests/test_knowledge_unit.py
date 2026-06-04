@@ -1,21 +1,11 @@
-"""
-test_knowledge_unit.py — Unit tests for KnowledgeService with mocked dependencies.
-
-Does NOT require live Qdrant or Ollama.
-Tests the logic layer in knowledge.py in isolation.
-"""
-
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
+from unittest.mock import MagicMock
 from repo_knowledge.knowledge import KnowledgeService
-from repo_knowledge.scanner import Project
 
 
 @pytest.fixture
 def fake_projects_root(tmp_path: Path) -> Path:
-    """Two fake git repos with a README and a Python file each."""
     for name in ["ALPHA", "BETA"]:
         repo = tmp_path / name
         repo.mkdir()
@@ -23,7 +13,7 @@ def fake_projects_root(tmp_path: Path) -> Path:
         (repo / "README.md").write_text(f"# {name}\n\n## Overview\nThis is {name}.")
         src = repo / "src"
         src.mkdir()
-        (src / "main.py").write_text(f"def run():\n    pass\n")
+        (src / "main.py").write_text("def run():\n    pass\n")
     return tmp_path
 
 
@@ -56,8 +46,6 @@ def svc(fake_projects_root, mock_store, mock_embedder) -> KnowledgeService:
     )
 
 
-# ── list_projects ─────────────────────────────────────────────────────────────────
-
 def test_list_projects_returns_all_scanned(svc):
     projects = svc.list_projects()
     names = {p["name"] for p in projects}
@@ -70,8 +58,6 @@ def test_list_projects_indexed_flag(svc):
     assert by_name["ALPHA"]["indexed"] is True
     assert by_name["BETA"]["indexed"] is False
 
-
-# ── get_project_context ──────────────────────────────────────────────────────────
 
 def test_get_project_context_returns_readme(svc):
     ctx = svc.get_project_context("ALPHA")
@@ -101,8 +87,6 @@ def test_get_project_context_indexed_flag(svc):
     assert ctx2["indexed"] is False
 
 
-# ── search ──────────────────────────────────────────────────────────────────────
-
 def test_search_calls_embedder(svc, mock_embedder):
     svc.search("authentication flow")
     mock_embedder.embed.assert_called_once_with("authentication flow")
@@ -111,9 +95,7 @@ def test_search_calls_embedder(svc, mock_embedder):
 def test_search_calls_store_with_vector(svc, mock_store, mock_embedder):
     svc.search("authentication flow", top_k=3)
     mock_store.search.assert_called_once_with(
-        mock_embedder.embed.return_value,
-        top_k=3,
-        project=None,
+        mock_embedder.embed.return_value, top_k=3, project=None,
     )
 
 
@@ -128,8 +110,6 @@ def test_search_returns_results(svc):
     assert len(results) == 1
     assert results[0]["symbol"] == "run"
 
-
-# ── get_file ────────────────────────────────────────────────────────────────────
 
 def test_get_file_returns_content(svc):
     result = svc.get_file("ALPHA", "src/main.py")
@@ -147,8 +127,6 @@ def test_get_file_missing_file(svc):
     assert "error" in result
 
 
-# ── reindex_project ───────────────────────────────────────────────────────────────
-
 def test_reindex_calls_delete_first(svc, mock_store):
     svc.reindex_project("ALPHA")
     mock_store.delete_project.assert_called_once_with("ALPHA")
@@ -165,7 +143,6 @@ def test_reindex_unknown_project(svc):
 
 
 def test_reindex_returns_chunk_count(svc):
-    # mock embed_batch to return one vector per call
     svc._embedder.embed_batch.side_effect = lambda texts: [[0.1] * 1024 for _ in texts]
     result = svc.reindex_project("ALPHA")
     assert "chunks_indexed" in result
