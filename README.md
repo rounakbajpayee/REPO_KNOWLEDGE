@@ -43,7 +43,13 @@ ollama pull nomic-embed-text
 # 5. Index your projects
 python index.py                    # index everything under PROJECTS_ROOT
 python index.py --project LENS     # index a single project
-```
+
+# 6. Run the OS Filewatcher (Optional, runs in background)
+python watcher.py                  # auto-reindexes on file saves with 5s debounce
+
+# 7. Post-Mortem Decision Extraction (Optional)
+python memory_helper.py --diff     # reconstructs decisions from workspace git diffs
+
 
 ---
 
@@ -98,6 +104,16 @@ Reindexes a project. Performs an incremental reindex by default, only chunking/e
 - Input: `project` (string), optional `force` (boolean, default false)
 - Run after significant code changes. Pass `force: true` to perform a full clean reindex.
 
+### `log_decision`
+Log an architectural, configuration, or dependency choice. Agents are instructed to call this immediately when a decision is made.
+- Input: `topic` (string), `name` (string), `description` (string), `rationale` (string), optional `options_considered` (list of objects)
+- Saves decision notes to `knowledge_vault/<topic>.md`.
+
+### `get_decision_history`
+Retrieve the chronological list of decisions logged under a topic.
+- Input: `topic` (string), optional `limit` (int, default 3), optional `full_history` (boolean, default false)
+- Defaults to returning the last 3 entries to preserve the agent's context window.
+
 ---
 
 ## Configuration Reference
@@ -128,7 +144,7 @@ The old collection is preserved. You can run both and compare — see ARCHITECTU
 
 ## Deferred (V2)
 
-- File watcher for automatic reindexing
+- File watcher for automatic reindexing (fully implemented & tested!)
 - Per-file semantic summaries
 - Symbol index (classes, functions, modules)
 - Architecture knowledge extraction (README, ADR, PROD_SPEC)
