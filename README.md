@@ -94,9 +94,9 @@ Read raw file contents.
 - Use `search_codebase` first to find the path, then fetch if you need the full file
 
 ### `reindex_project`
-Delete and rebuild the index for a project.
-- Input: `project` (string)
-- Run after significant code changes
+Reindexes a project. Performs an incremental reindex by default, only chunking/embedding new and changed files, and deleting removed files.
+- Input: `project` (string), optional `force` (boolean, default false)
+- Run after significant code changes. Pass `force: true` to perform a full clean reindex.
 
 ---
 
@@ -111,6 +111,8 @@ Delete and rebuild the index for a project.
 | `QDRANT_COLLECTION` | `code_chunks_nomic` | Include model slug for benchmarking |
 | `PROJECTS_ROOT` | `~/Projects` | Root directory to scan |
 | `SEARCH_TOP_K` | `5` | Default search results count |
+| `SEARCH_SCORE_THRESHOLD` | `0.40` | Min similarity score to include in search |
+| `OLLAMA_TIMEOUT` | `120.0` | Timeout in seconds for Ollama calls |
 
 ---
 

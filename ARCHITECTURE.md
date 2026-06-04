@@ -63,11 +63,14 @@ Collection is created on first run if missing. Uses cosine distance.
 
 ### knowledge.py
 Pure Python. No MCP dependency. Public API:
-- `list_projects()` — scanner + store combined view
-- `get_project_context(name)` — README + tree + stack in one call
-- `search(query, project?, top_k)` — embed query → Qdrant search
-- `get_file(project, path)` — raw file read
-- `reindex_project(name)` — delete → chunk → embed → store
+- `list_projects(trace_id?)` — scanner + store combined view (TTL cached for 30s)
+- `get_project_context(name, trace_id?)` — README + tree + stack in one call
+- `search(query, project?, top_k?, trace_id?)` — embed query → Qdrant search (deduplicated by content hash, similarity threshold applied, search quality classified)
+- `get_file(project, path, trace_id?)` — raw file read
+- `reindex_project(name, force?, trace_id?)` — incremental reindexing by default, only chunking/embedding changed/new files; deletes stale/removed files. Set `force=True` to wipe and fully rebuild.
+
+### tracer.py
+Structured JSONL tracer carrying timestamp, trace ID, event, severity, subsystem, duration, and payload. Writes asynchronously in the background. All lines logged during a single MCP tool call share the same `trace_id`.
 
 ### mcp_server.py
 Thin MCP adapter over `KnowledgeService`. Uses `stdio` transport (MCP default). Handles:
@@ -114,6 +117,8 @@ Every vector point stores:
   "content":         "...",
   "start_line":      42,
   "end_line":        78,
+  "content_hash":    "sha256...",
+  "file_mtime":      1700000000.0,
   "embedding_model": "nomic-embed-text",
   "indexed_at":      "2026-01-01T00:00:00+00:00"
 }
