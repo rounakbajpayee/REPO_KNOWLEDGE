@@ -81,7 +81,14 @@ def scan_projects(root: str = PROJECTS_ROOT) -> list[Project]:
 
 
 def get_project(name: str, root: str = PROJECTS_ROOT) -> Project | None:
-    """Return a single project by name, or None if not found."""
+    """Return a single project by name, or None if not found.
+
+    Fast path: checks root/<name>/.git directly before falling back to full scan.
+    """
+    root_path = Path(root).expanduser().resolve()
+    candidate = root_path / name
+    if candidate.is_dir() and (candidate / ".git").exists():
+        return Project(name=name, path=candidate, stack=detect_stack(candidate))
     for project in scan_projects(root):
         if project.name == name:
             return project

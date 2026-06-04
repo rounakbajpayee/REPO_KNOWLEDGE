@@ -13,16 +13,20 @@ Public API:
   reindex_project(name)       → delete + rechunk + re-embed + store
 """
 
+import hashlib
+import threading
 import time
 from pathlib import Path
 
-from repo_knowledge.chunker import chunk_project
-from repo_knowledge.config import PROJECTS_ROOT, SEARCH_TOP_K
+from repo_knowledge.chunker import chunk_file, chunk_project
+from repo_knowledge.config import IGNORE_DIRS, PROJECTS_ROOT, SEARCH_TOP_K
 from repo_knowledge.embedder import Embedder, default_embedder
 from repo_knowledge.logger import log
 from repo_knowledge.scanner import Project, get_project, scan_projects
 from repo_knowledge.store import Store
 from repo_knowledge.tracer import trace
+
+_LIST_PROJECTS_TTL = 30.0  # seconds
 
 
 class KnowledgeService:
@@ -30,14 +34,33 @@ class KnowledgeService:
         self._store = store or Store()
         self._embedder = embedder or default_embedder()
         self._projects_root = projects_root
+        # TTL cache for list_projects — invalidated on reindex completion
+        self._projects_cache: list[dict] | None = None
+        self._projects_cache_ts: float = 0.0
+        self._projects_cache_lock = threading.Lock()
 
     def list_projects(self, trace_id: str | None = None) -> list[dict]:
+        with self._projects_cache_lock:
+            if (
+                self._projects_cache is not None
+                and (time.monotonic() - self._projects_cache_ts) < _LIST_PROJECTS_TTL
+            ):
+                return self._projects_cache
         scanned = {p.name: p for p in scan_projects(self._projects_root)}
         indexed = set(self._store.list_projects())
         result = []
         for name, project in scanned.items():
             result.append({"name": name, "stack": project.stack, "indexed": name in indexed})
-        return sorted(result, key=lambda x: x["name"])
+        result = sorted(result, key=lambda x: x["name"])
+        with self._projects_cache_lock:
+            self._projects_cache = result
+            self._projects_cache_ts = time.monotonic()
+        return result
+
+    def _invalidate_projects_cache(self) -> None:
+        with self._projects_cache_lock:
+            self._projects_cache = None
+            self._projects_cache_ts = 0.0
 
     def get_project_context(self, project_name: str, trace_id: str | None = None) -> dict:
         project = get_project(project_name, self._projects_root)
@@ -48,7 +71,11 @@ class KnowledgeService:
             return {"error": f"Project '{project_name}' not found in {self._projects_root}"}
         readme_excerpt = _read_readme(project.path)
         tree = _build_tree(project.path, max_depth=2)
-        file_count = sum(1 for _ in project.path.rglob("*") if _.is_file())
+        # Exclude ignored dirs from file count (matches what gets indexed)
+        file_count = sum(
+            1 for p in project.path.rglob("*")
+            if p.is_file() and not any(part in IGNORE_DIRS for part in p.parts)
+        )
         indexed = project_name in set(self._store.list_projects())
         trace("get_project_context", project=project_name, file_count=file_count,
               indexed=indexed, subsystem="knowledge", trace_id=trace_id)
@@ -63,8 +90,17 @@ class KnowledgeService:
         vector = self._embedder.embed(query)
         results = self._store.search(vector, top_k=top_k, project=project)
         duration_ms = round((time.monotonic() - t0) * 1000)
+        # Classify quality by best score in result set
+        if results:
+            best_score = max(r.get("score", 0.0) for r in results)
+            search_quality = "good" if best_score >= 0.65 else "low"
+        else:
+            search_quality = "none"
         trace("search", query=query, project=project, top_k=top_k,
-              results=len(results), duration_ms=duration_ms, subsystem="knowledge", trace_id=trace_id)
+              results=len(results), duration_ms=duration_ms, search_quality=search_quality,
+              subsystem="knowledge", trace_id=trace_id)
+        for r in results:
+            r["search_quality"] = search_quality
         return results
 
     def get_file(self, project_name: str, path: str, trace_id: str | None = None) -> dict:
@@ -92,7 +128,7 @@ class KnowledgeService:
         return {"project": project_name, "path": path, "content": content,
                 "line_count": content.count("\n") + 1}
 
-    def reindex_project(self, project_name: str, trace_id: str | None = None) -> dict:
+    def reindex_project(self, project_name: str, force: bool = False, trace_id: str | None = None) -> dict:
         t0 = time.monotonic()
         project = get_project(project_name, self._projects_root)
         if not project:
@@ -100,25 +136,76 @@ class KnowledgeService:
                   severity="ERROR", subsystem="knowledge", trace_id=trace_id)
             return {"error": f"Project '{project_name}' not found"}
 
-        trace("reindex_start", project=project_name, subsystem="knowledge", trace_id=trace_id)
-        self._store.delete_project(project_name)
-        trace("reindex_cleared", project=project_name, subsystem="knowledge", trace_id=trace_id)
+        if force:
+            # Full reindex: wipe everything, rechunk all files
+            trace("reindex_start", project=project_name, mode="force", subsystem="knowledge", trace_id=trace_id)
+            self._store.delete_project(project_name)
+            trace("reindex_cleared", project=project_name, subsystem="knowledge", trace_id=trace_id)
+            chunks = chunk_project(project.path, project_name)
+            changed_chunks = chunks
+        else:
+            # Incremental reindex: skip unchanged files, re-embed changed/new, delete removed
+            trace("reindex_start", project=project_name, mode="incremental", subsystem="knowledge", trace_id=trace_id)
+            indexed_hashes = self._store.get_indexed_file_hashes(project_name)
 
-        chunks = chunk_project(project.path, project_name)
-        if not chunks:
+            # Walk project files, compute current hashes
+            current_files: dict[str, str] = {}  # rel_path → content_hash
+            changed_chunks: list = []
+            for file_path in project.path.rglob("*"):
+                if not file_path.is_file():
+                    continue
+                if any(part in IGNORE_DIRS or part.endswith(".egg-info")
+                       for part in file_path.parts):
+                    continue
+                try:
+                    source = file_path.read_text(encoding="utf-8", errors="ignore")
+                except OSError:
+                    continue
+                rel_path = str(file_path.relative_to(project.path))
+                content_hash = hashlib.sha256(source.encode()).hexdigest()
+                current_files[rel_path] = content_hash
+                old_hash = indexed_hashes.get(rel_path, None)
+                if old_hash != content_hash:  # new or changed (old_hash "" also triggers)
+                    file_mtime = 0.0
+                    try:
+                        file_mtime = file_path.stat().st_mtime
+                    except OSError:
+                        pass
+                    new_chunks = chunk_file(
+                        file_path, project.path, project_name,
+                        content_hash=content_hash, file_mtime=file_mtime,
+                    )
+                    if new_chunks:
+                        # Delete stale chunks for this file before re-adding
+                        if rel_path in indexed_hashes:
+                            self._store.delete_file(project_name, rel_path)
+                        changed_chunks.extend(new_chunks)
+
+            # Delete indexed files that no longer exist in the project
+            removed = set(indexed_hashes) - set(current_files)
+            for rel_path in removed:
+                self._store.delete_file(project_name, rel_path)
+
+            trace("reindex_incremental_stats", project=project_name,
+                  total=len(current_files), changed=len(changed_chunks),
+                  removed=len(removed), subsystem="knowledge", trace_id=trace_id)
+
+        if not changed_chunks:
+            duration_ms = round((time.monotonic() - t0) * 1000)
             trace("reindex_complete", project=project_name, chunks=0,
-                  message="No supported files found", subsystem="knowledge", trace_id=trace_id)
+                  duration_ms=duration_ms, message="No changes detected", subsystem="knowledge", trace_id=trace_id)
+            self._invalidate_projects_cache()
             return {"project": project_name, "chunks_indexed": 0,
-                    "message": "No supported files found"}
+                    "message": "No changes detected"}
 
-        trace("reindex_chunked", project=project_name, chunks=len(chunks), subsystem="knowledge", trace_id=trace_id)
+        trace("reindex_chunked", project=project_name, chunks=len(changed_chunks), subsystem="knowledge", trace_id=trace_id)
 
         batch_size = 32
         all_vectors: list[list[float]] = []
-        total_batches = (len(chunks) + batch_size - 1) // batch_size
+        total_batches = (len(changed_chunks) + batch_size - 1) // batch_size
 
-        for i in range(0, len(chunks), batch_size):
-            batch = chunks[i: i + batch_size]
+        for i in range(0, len(changed_chunks), batch_size):
+            batch = changed_chunks[i: i + batch_size]
             batch_num = i // batch_size + 1
             t_batch = time.monotonic()
             try:
@@ -133,12 +220,13 @@ class KnowledgeService:
                       batch=batch_num, message=str(e), severity="ERROR", subsystem="knowledge", trace_id=trace_id)
                 return {"project": project_name, "error": str(e), "chunks_indexed": 0}
 
-        self._store.upsert_chunks(chunks, all_vectors)
+        self._store.upsert_chunks(changed_chunks, all_vectors)
         duration_ms = round((time.monotonic() - t0) * 1000)
-        trace("reindex_complete", project=project_name, chunks=len(chunks),
+        trace("reindex_complete", project=project_name, chunks=len(changed_chunks),
               duration_ms=duration_ms, subsystem="knowledge", trace_id=trace_id)
-        return {"project": project_name, "chunks_indexed": len(chunks),
-                "message": f"Successfully indexed {len(chunks)} chunks"}
+        self._invalidate_projects_cache()
+        return {"project": project_name, "chunks_indexed": len(changed_chunks),
+                "message": f"Successfully indexed {len(changed_chunks)} chunks"}
 
 
 _IGNORE_IN_TREE = {
