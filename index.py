@@ -39,16 +39,16 @@ def main(project: str | None, root: str | None) -> None:
 
     t_total = time.monotonic()
     for name in projects_to_index:
-        click.echo(f"\n\u2192 Indexing {name}...")
+        click.echo(f"\n-> Indexing {name}...")
         t0 = time.monotonic()
         result = svc.reindex_project(name)
         elapsed = round(time.monotonic() - t0, 1)
         if "error" in result:
-            click.secho(f"  \u2717 {result['error']} ({elapsed}s)", fg="red")
+            click.secho(f"  [ERROR] {result['error']} ({elapsed}s)", fg="red")
             log("cli_index_error", project=name, error=result["error"], duration_s=elapsed)
         else:
             click.secho(
-                f"  \u2713 {result['message']} ({elapsed}s)",
+                f"  [OK] {result['message']} ({elapsed}s)",
                 fg="green",
             )
             log("cli_index_success", project=name,
