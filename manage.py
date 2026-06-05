@@ -15,6 +15,10 @@ PYTHONW_PATH = REPO_ROOT / ".venv" / "Scripts" / "pythonw.exe"
 PYTHON_PATH = REPO_ROOT / ".venv" / "Scripts" / "python.exe"
 WATCHER_PATH = REPO_ROOT / "watcher.py"
 
+# Self-re-execution check: automatically switch to virtual environment python if run globally
+if sys.executable != str(PYTHON_PATH) and PYTHON_PATH.exists():
+    os.execv(str(PYTHON_PATH), [str(PYTHON_PATH)] + sys.argv)
+
 def check_startup_registration():
     """Ensure that the filewatcher is registered in Windows Startup folder."""
     appdata = os.getenv("APPDATA")
