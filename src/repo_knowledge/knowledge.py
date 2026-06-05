@@ -22,12 +22,14 @@ from pathlib import Path
 
 
 from repo_knowledge.chunker import chunk_file, chunk_project
-from repo_knowledge.config import IGNORE_DIRS, PROJECTS_ROOT, SEARCH_TOP_K
+from repo_knowledge.config import IGNORE_DIRS, PROJECTS_ROOT, RERANK_ENABLED, SEARCH_TOP_K
 from repo_knowledge.embedder import Embedder, default_embedder
 from repo_knowledge.logger import log
 from repo_knowledge.scanner import Project, get_project, scan_projects
 from repo_knowledge.store import Store
 from repo_knowledge.tracer import trace
+from repo_knowledge import cache as search_cache
+from repo_knowledge import reranker as search_reranker
 
 _LIST_PROJECTS_TTL = 30.0  # seconds
 
@@ -95,20 +97,53 @@ class KnowledgeService:
 
     def search(self, query: str, project: str | None = None, top_k: int = SEARCH_TOP_K, trace_id: str | None = None) -> list[dict]:
         t0 = time.monotonic()
+
+        # ── 1. Redis cache check ──────────────────────────────────────────────────
+        cached = search_cache.get_cached(query, project, top_k)
+        if cached is not None:
+            duration_ms = round((time.monotonic() - t0) * 1000)
+            trace("search", query=query, project=project, top_k=top_k,
+                  results=len(cached), duration_ms=duration_ms, cache_hit=True,
+                  search_quality="cached", subsystem="knowledge", trace_id=trace_id)
+            for r in cached:
+                r["search_quality"] = "cached"
+            return cached
+
+        # ── 2. Embed query ─────────────────────────────────────────────────────────
         vector = self._embedder.embed(query)
-        results = self._store.search(vector, top_k=top_k, project=project)
+
+        # ── 3. Hybrid recall: Qdrant + BM25 via RRF ────────────────────────────────
+        candidates = self._store.search(
+            vector, top_k=top_k, project=project, query_text=query
+        )
+
+        # ── 4. Cross-encoder rerank ───────────────────────────────────────────────
+        if RERANK_ENABLED and candidates:
+            results = search_reranker.rerank(query, candidates, top_k=top_k)
+        else:
+            results = candidates[:top_k]
+
         duration_ms = round((time.monotonic() - t0) * 1000)
+
         # Classify quality by best score in result set
         if results:
-            best_score = max(r.get("score", 0.0) for r in results)
+            best_score = max(r.get("rerank_score", r.get("score", 0.0)) for r in results)
             search_quality = "good" if best_score >= 0.65 else "low"
         else:
             search_quality = "none"
+
         trace("search", query=query, project=project, top_k=top_k,
-              results=len(results), duration_ms=duration_ms, search_quality=search_quality,
-              subsystem="knowledge", trace_id=trace_id)
+              results=len(results), duration_ms=duration_ms,
+              cache_hit=False, reranked=RERANK_ENABLED,
+              search_quality=search_quality, subsystem="knowledge", trace_id=trace_id)
+
         for r in results:
             r["search_quality"] = search_quality
+
+        # ── 5. Store in Redis ───────────────────────────────────────────────────
+        if results:
+            search_cache.set_cached(query, project, top_k, results)
+
         return results
 
     def get_file(self, project_name: str, path: str, start_line: int | None = None, end_line: int | None = None, trace_id: str | None = None) -> dict:
@@ -255,6 +290,8 @@ class KnowledgeService:
         trace("reindex_complete", project=project_name, chunks=len(changed_chunks),
               duration_ms=duration_ms, subsystem="knowledge", trace_id=trace_id)
         self._invalidate_projects_cache()
+        # Flush stale search cache entries for this project
+        search_cache.flush_project(project_name)
         return {"project": project_name, "chunks_indexed": len(changed_chunks),
                 "message": f"Successfully indexed {len(changed_chunks)} chunks"}
 

@@ -33,6 +33,7 @@ import json
 import queue
 import secrets
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -45,44 +46,70 @@ _LOG_PATH = _LOG_DIR / "repo_knowledge.jsonl"
 # ── Background writer ─────────────────────────────────────────────────────────
 _queue: queue.SimpleQueue[str] = queue.SimpleQueue()
 
+# Batch flush parameters
+_BATCH_MAX = 50       # max records per DB flush
+_BATCH_TIMEOUT = 0.2  # seconds to wait before flushing a partial batch
+
 
 def _writer_loop() -> None:
-    """Drain the queue and append each line to the log file and PostgreSQL. Never dies."""
+    """Drain the queue, write to JSONL and batch-flush to PostgreSQL. Never dies."""
     from repo_knowledge.postgres_store import PostgresStore
-    pg = None
+    pg: PostgresStore | None = None
     try:
         pg = PostgresStore()
     except Exception:
         pass
 
+    pending: list[dict] = []  # accumulates parsed records for batch DB flush
+    last_flush = time.monotonic()
+
     while True:
-        line = _queue.get()  # blocks until an item arrives
-        # 1. Write to JSONL log file
+        # Block briefly so we can flush even without new items arriving
         try:
-            _LOG_DIR.mkdir(parents=True, exist_ok=True)
-            with _LOG_PATH.open("a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
-        except OSError:
-            pass  # silently discard on disk error
+            line = _queue.get(timeout=_BATCH_TIMEOUT)
+        except queue.Empty:
+            line = None
 
-        # 2. Write to PostgreSQL database
-        try:
-            record = json.loads(line)
-            if pg is None:
-                pg = PostgresStore()
-            pg.log_audit_trace(
-                ts_str=record["ts"],
-                trace_id=record.get("trace_id"),
-                event=record["event"],
-                severity=record.get("severity", "INFO"),
-                subsystem=record.get("subsystem", "unknown"),
-                duration_ms=record.get("duration_ms"),
-                payload=record.get("payload")
-            )
-        except Exception:
-            pg = None  # Force re-initialization next time if it fails
-            pass
+        if line is not None:
+            # 1. Write to JSONL log file (always, immediately)
+            try:
+                _LOG_DIR.mkdir(parents=True, exist_ok=True)
+                with _LOG_PATH.open("a", encoding="utf-8") as fh:
+                    fh.write(line + "\n")
+            except OSError:
+                pass
 
+            # 2. Accumulate for DB batch
+            try:
+                record = json.loads(line)
+                pending.append({
+                    "ts_str": record["ts"],
+                    "trace_id": record.get("trace_id"),
+                    "event": record["event"],
+                    "severity": record.get("severity", "INFO"),
+                    "subsystem": record.get("subsystem", "unknown"),
+                    "duration_ms": record.get("duration_ms"),
+                    "payload": record.get("payload"),
+                })
+            except Exception:
+                pass
+
+        now = time.monotonic()
+        should_flush = (
+            len(pending) >= _BATCH_MAX
+            or (pending and (now - last_flush) >= _BATCH_TIMEOUT)
+        )
+
+        if should_flush:
+            batch = pending[:]
+            pending.clear()
+            last_flush = now
+            try:
+                if pg is None:
+                    pg = PostgresStore()
+                pg.log_audit_traces_batch(batch)
+            except Exception:
+                pg = None  # Force re-init on next flush
 
 
 _writer_thread = threading.Thread(target=_writer_loop, daemon=True, name="tracer-writer")

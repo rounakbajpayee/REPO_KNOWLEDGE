@@ -46,6 +46,22 @@ SEARCH_TOP_K: int = int(os.getenv("SEARCH_TOP_K", "5"))
 # 0.40 removes clearly unrelated noise; 0.65 is "good quality".
 SEARCH_SCORE_THRESHOLD: float = float(os.getenv("SEARCH_SCORE_THRESHOLD", "0.40"))
 
+# ── Reranking ────────────────────────────────────────────────────────────────
+# Set RERANK_ENABLED=false to skip the cross-encoder (useful in low-memory envs).
+RERANK_ENABLED: bool = os.getenv("RERANK_ENABLED", "true").lower() not in {"false", "0", "no"}
+
+# How many candidates to fetch from Qdrant+BM25 before passing to the reranker.
+# Higher = better recall but slower cross-encoder. 40 is the production sweet-spot.
+RERANK_FETCH_K: int = int(os.getenv("RERANK_FETCH_K", "40"))
+
+# Cross-encoder model. ms-marco-MiniLM-L-6-v2 is ~80MB, CPU-friendly, fast.
+RERANK_MODEL: str = os.getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+# ── Redis cache ──────────────────────────────────────────────────────────────
+# Redis is OPTIONAL — all search paths degrade gracefully when unavailable.
+REDIS_URL: str = os.getenv("REDIS_URL", "redis://192.168.0.234:6379/0")
+REDIS_TTL_S: int = int(os.getenv("REDIS_TTL_S", "300"))  # 5-minute TTL
+
 # ── MCP Server ───────────────────────────────────────────────────────────────
 # Maximum seconds a single tool call may run before the server returns a clean
 # timeout error. 90s is generous: Ollama cold-start on qwen3-embedding:4b takes

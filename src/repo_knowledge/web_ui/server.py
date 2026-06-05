@@ -164,6 +164,49 @@ def search_sandbox(req: SearchRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Ordered list of (label, candidate relative paths) to probe per project
+_DOC_CANDIDATES: list[tuple[str, list[str]]] = [
+    ("README",       ["README.md", "README.rst", "README.txt", "readme.md"]),
+    ("Architecture", ["ARCHITECTURE.md", "docs/architecture.md", "docs/ARCHITECTURE.md"]),
+    ("Runbook",      ["RUNBOOK.md", "docs/runbook.md", "docs/RUNBOOK.md"]),
+]
+
+
+
+@app.get("/api/projects/{project_name}/docs")
+def get_project_docs(project_name: str):
+    """Return available documentation files for a project with their content."""
+    from repo_knowledge.scanner import get_project
+
+    project = get_project(project_name)
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
+
+    docs = []
+    for label, candidates in _DOC_CANDIDATES:
+        for rel_path in candidates:
+            full_path = project.path / rel_path
+            if full_path.exists() and full_path.is_file():
+                try:
+                    content = full_path.read_text(encoding="utf-8", errors="ignore")
+                    docs.append({
+                        "label": label,
+                        "filename": rel_path,
+                        "content": content,
+                    })
+                except OSError:
+                    pass
+                break  # Found this doc type — move to next candidate group
+
+    return {
+        "project": project_name,
+        "stack": " / ".join(project.stack) if project.stack else "Unknown",
+        "docs": docs,
+    }
+
+
+
+
 @app.post("/api/reindex")
 async def reindex_project(req: ReindexRequest):
     """Triggers project reindexing in the background."""

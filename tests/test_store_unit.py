@@ -230,3 +230,51 @@ def test_search_scores_are_rounded():
     mock_client.search.return_value = [_make_hit(0.912345, "h1")]
     results = store.search([0.1] * 10, top_k=5)
     assert results[0]["score"] == round(0.912345, 4)
+
+
+# ── list_projects ──────────────────────────────────────────────────────────────────────
+
+def test_list_projects_uses_postgres_primary():
+    """list_projects must query Postgres first and skip Qdrant scroll when data exists."""
+    mock_client = MagicMock()
+    store = _make_store(mock_client)
+    store._pg.get_project_names.return_value = ["ALPHA", "BETA"]
+
+    result = store.list_projects()
+
+    assert result == ["ALPHA", "BETA"]
+    # Qdrant scroll must NOT have been called
+    mock_client.scroll.assert_not_called()
+
+
+def test_list_projects_falls_back_to_qdrant_when_postgres_empty():
+    """list_projects must fall back to Qdrant scroll when Postgres returns empty list."""
+    mock_client = MagicMock()
+    store = _make_store(mock_client)
+    store._pg.get_project_names.return_value = []  # empty → trigger fallback
+
+    rec = MagicMock()
+    rec.payload = {"project": "GAMMA"}
+    mock_client.scroll.return_value = ([rec], None)
+
+    result = store.list_projects()
+
+    assert "GAMMA" in result
+    mock_client.scroll.assert_called_once()
+
+
+def test_list_projects_falls_back_to_qdrant_on_postgres_error():
+    """list_projects must fall back to Qdrant scroll when Postgres raises."""
+    mock_client = MagicMock()
+    store = _make_store(mock_client)
+    store._pg.get_project_names.side_effect = Exception("DB offline")
+
+    rec = MagicMock()
+    rec.payload = {"project": "DELTA"}
+    mock_client.scroll.return_value = ([rec], None)
+
+    result = store.list_projects()
+
+    assert "DELTA" in result
+    mock_client.scroll.assert_called_once()
+

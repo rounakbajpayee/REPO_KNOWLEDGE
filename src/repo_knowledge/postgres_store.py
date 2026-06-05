@@ -1,12 +1,19 @@
 """
 postgres_store.py — PostgreSQL relational storage manager for REPO_KNOWLEDGE.
+
+Uses a ThreadedConnectionPool (min=2, max=10) to eliminate the ~80ms per-call
+TCP handshake overhead that bare psycopg2.connect() incurs over a LAN connection.
+Connections are returned to the pool after each operation.
 """
 
 import json
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import psycopg2
+from psycopg2 import pool as pgpool
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from psycopg2.extras import Json
+from psycopg2.extras import Json, execute_values
 from repo_knowledge.config import (
     POSTGRES_HOST,
     POSTGRES_PORT,
@@ -31,6 +38,8 @@ class PostgresStore:
         self._password = password
         self._db = database
         self._initialized = False
+        self._pool: pgpool.ThreadedConnectionPool | None = None
+        self._pool_lock = threading.Lock()
 
     def _create_database_if_not_exists(self) -> None:
         """Connect to default 'postgres' database to check/create the target database."""
@@ -142,6 +151,24 @@ class PostgresStore:
                         payload JSONB
                     );
                 """)
+
+                # BM25 full-text search: generated tsvector column + GIN index
+                # ALTER is idempotent (IF NOT EXISTS); index creation is skipped if it exists.
+                cur.execute("""
+                    ALTER TABLE chunks
+                        ADD COLUMN IF NOT EXISTS content_tsv TSVECTOR
+                        GENERATED ALWAYS AS (
+                            to_tsvector('english',
+                                coalesce(symbol, '') || ' ' ||
+                                coalesce(chunk_type, '') || ' ' ||
+                                coalesce(content, '')
+                            )
+                        ) STORED;
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS chunks_content_tsv_gin
+                    ON chunks USING GIN (content_tsv);
+                """)
         conn.close()
         self._initialized = True
 
@@ -174,15 +201,67 @@ class PostgresStore:
             except Exception:
                 return False
 
+    def _init_pool(self) -> None:
+        """Initialise the connection pool (called lazily, once per process)."""
+        with self._pool_lock:
+            if self._pool is not None:
+                return
+            try:
+                self._pool = pgpool.ThreadedConnectionPool(
+                    minconn=2,
+                    maxconn=10,
+                    host=self._host,
+                    port=self._port,
+                    user=self._user,
+                    password=self._password,
+                    dbname=self._db,
+                    connect_timeout=5,
+                )
+            except Exception:
+                self._pool = None  # Will fall back to bare connect
+
+    @contextmanager
     def _get_connection(self):
+        """Yield a connection from the pool (or a bare connect if pool unavailable)."""
         self._ensure_tables()
-        return psycopg2.connect(
-            host=self._host,
-            port=self._port,
-            user=self._user,
-            password=self._password,
-            database=self._db,
-        )
+        if self._pool is None:
+            self._init_pool()
+
+        if self._pool is not None:
+            conn = self._pool.getconn()
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                self._pool.putconn(conn)
+        else:
+            # Fallback: bare connection (original behaviour)
+            conn = psycopg2.connect(
+                host=self._host,
+                port=self._port,
+                user=self._user,
+                password=self._password,
+                database=self._db,
+                connect_timeout=5,
+            )
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+    def close_pool(self) -> None:
+        """Close all pool connections. Call on application shutdown."""
+        with self._pool_lock:
+            if self._pool:
+                self._pool.closeall()
+                self._pool = None
 
     def upsert_project(self, name: str, stack: str) -> int:
         """Insert or update project metadata, returning project database ID."""
@@ -331,6 +410,119 @@ class PostgresStore:
                     {"name": r[0], "stack": r[1], "last_indexed_at": r[2].isoformat()}
                     for r in cur.fetchall()
                 ]
+
+    def get_project_names(self) -> list[str]:
+        """Return only project names — fast single-column query used by store.list_projects()."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT name FROM projects ORDER BY name ASC;")
+                return [r[0] for r in cur.fetchall()]
+
+    def search_bm25(
+        self,
+        query_text: str,
+        project: str | None = None,
+        limit: int = 40,
+    ) -> list[dict]:
+        """Full-text BM25 search via Postgres tsvector GIN index.
+
+        Returns rows scored by ts_rank_cd, normalised to [0, 1] against the
+        maximum rank in the result set so scores are RRF-compatible with
+        cosine similarity scores from Qdrant.
+
+        Args:
+            query_text: Raw query string (converted to plainto_tsquery internally).
+            project:    Optional project filter.
+            limit:      Maximum candidate rows to return.
+
+        Returns:
+            List of dicts with: id, project, path, language, chunk_type,
+            symbol, content, start_line, end_line, bm25_score.
+        """
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                base_sql = """
+                    SELECT
+                        c.id::text,
+                        c.project,
+                        c.path,
+                        c.language,
+                        c.chunk_type,
+                        c.symbol,
+                        c.content,
+                        c.start_line,
+                        c.end_line,
+                        ts_rank_cd(c.content_tsv, query) AS rank
+                    FROM chunks c,
+                         plainto_tsquery('english', %s) query
+                    WHERE c.content_tsv @@ query
+                """
+                params: list = [query_text]
+                if project:
+                    base_sql += " AND c.project = %s"
+                    params.append(project)
+                base_sql += " ORDER BY rank DESC LIMIT %s;"
+                params.append(limit)
+
+                cur.execute(base_sql, params)
+                rows = cur.fetchall()
+
+        if not rows:
+            return []
+
+        max_rank = max(r[9] for r in rows) or 1.0
+        return [
+            {
+                "id": r[0],
+                "project": r[1],
+                "path": r[2],
+                "language": r[3],
+                "chunk_type": r[4],
+                "symbol": r[5],
+                "content": r[6],
+                "start_line": r[7],
+                "end_line": r[8],
+                "bm25_score": round(float(r[9]) / max_rank, 4),
+            }
+            for r in rows
+        ]
+
+
+    def log_audit_traces_batch(self, records: list[dict]) -> None:
+        """Bulk-insert multiple audit trace records in a single round-trip.
+
+        Each record must have: ts_str, trace_id, event, severity, subsystem,
+        duration_ms (optional), payload (optional dict).
+        """
+        if not records:
+            return
+
+        rows = []
+        for rec in records:
+            try:
+                ts = datetime.fromisoformat(rec["ts_str"].replace("Z", "+00:00"))
+            except (ValueError, KeyError):
+                ts = datetime.now(timezone.utc)
+            rows.append((
+                ts,
+                rec.get("trace_id"),
+                rec.get("event", ""),
+                rec.get("severity", "INFO"),
+                rec.get("subsystem", "unknown"),
+                rec.get("duration_ms"),
+                Json(rec["payload"]) if rec.get("payload") else None,
+            ))
+
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                execute_values(
+                    cur,
+                    """
+                    INSERT INTO audit_logs (ts, trace_id, event, severity, subsystem, duration_ms, payload)
+                    VALUES %s;
+                    """,
+                    rows,
+                )
 
     def get_audit_logs(self, limit: int = 100, severity: str | None = None) -> list[dict]:
         """Query the structured trace logs."""
