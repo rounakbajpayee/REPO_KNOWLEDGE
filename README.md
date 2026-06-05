@@ -140,6 +140,11 @@ Wipe Qdrant vector index and re-embed all code chunks from the PostgreSQL store 
 | `SEARCH_TOP_K` | `5` | Default search results count |
 | `SEARCH_SCORE_THRESHOLD` | `0.40` | Min similarity score to include in search |
 | `OLLAMA_TIMEOUT` | `120.0` | Timeout in seconds for Ollama calls |
+| `RERANK_ENABLED` | `true` | Set to false to disable Cross-Encoder reranking |
+| `RERANK_FETCH_K` | `40` | Candidate pool size retrieved from hybrid recall |
+| `RERANK_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | CPU-friendly cross-encoder model name |
+| `REDIS_URL` | `redis://192.168.0.234:6379/0` | Optional Redis cache server connection string |
+| `REDIS_TTL_S` | `300` | Redis cached search result time-to-live in seconds |
 
 ---
 
