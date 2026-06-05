@@ -22,7 +22,7 @@ from pathlib import Path
 
 
 from repo_knowledge.chunker import chunk_file, chunk_project
-from repo_knowledge.config import IGNORE_DIRS, PROJECTS_ROOT, SEARCH_TOP_K
+from repo_knowledge.config import IGNORE_DIRS, IGNORE_EXTENSIONS, SUPPORTED_EXTENSIONS, PROJECTS_ROOT, SEARCH_TOP_K
 from repo_knowledge.embedder import Embedder, default_embedder
 from repo_knowledge.logger import log
 from repo_knowledge.scanner import Project, get_project, scan_projects
@@ -44,7 +44,7 @@ class KnowledgeService:
         self._vault_lock = threading.Lock()
 
 
-    def list_projects(self, trace_id: str | None = None) -> list[dict]:
+    def list_projects(self) -> list[dict]:
         with self._projects_cache_lock:
             if (
                 self._projects_cache is not None
@@ -67,12 +67,12 @@ class KnowledgeService:
             self._projects_cache = None
             self._projects_cache_ts = 0.0
 
-    def get_project_context(self, project_name: str, trace_id: str | None = None) -> dict:
+    def get_project_context(self, project_name: str) -> dict:
         project = get_project(project_name, self._projects_root)
         if not project:
             trace("error", event_source="get_project_context",
                   message=f"Project not found: {project_name}", severity="ERROR",
-                  subsystem="knowledge", trace_id=trace_id)
+                  subsystem="knowledge")
             return {"error": f"Project '{project_name}' not found in {self._projects_root}"}
         readme_excerpt = _read_readme(project.path)
         tree = _build_tree(project.path, max_depth=2)
@@ -83,14 +83,14 @@ class KnowledgeService:
         )
         indexed = project_name in set(self._store.list_projects())
         trace("get_project_context", project=project_name, file_count=file_count,
-              indexed=indexed, subsystem="knowledge", trace_id=trace_id)
+              indexed=indexed, subsystem="knowledge")
         return {
             "name": project.name, "path": str(project.path), "stack": project.stack,
             "readme_excerpt": readme_excerpt, "directory_tree": tree,
             "file_count": file_count, "indexed": indexed,
         }
 
-    def search(self, query: str, project: str | None = None, top_k: int = SEARCH_TOP_K, trace_id: str | None = None) -> list[dict]:
+    def search(self, query: str, project: str | None = None, top_k: int = SEARCH_TOP_K) -> list[dict]:
         t0 = time.monotonic()
         vector = self._embedder.embed(query)
         results = self._store.search(vector, top_k=top_k, project=project)
@@ -103,22 +103,94 @@ class KnowledgeService:
             search_quality = "none"
         trace("search", query=query, project=project, top_k=top_k,
               results=len(results), duration_ms=duration_ms, search_quality=search_quality,
-              subsystem="knowledge", trace_id=trace_id)
+              subsystem="knowledge")
         for r in results:
             r["search_quality"] = search_quality
         return results
 
-    def get_file(self, project_name: str, path: str, start_line: int | None = None, end_line: int | None = None, trace_id: str | None = None) -> dict:
+    def list_files(self, project_name: str, path_prefix: str | None = None, extension: str | None = None) -> dict:
+        project_root = Path(self._projects_root) / project_name
+        if not project_root.exists() or not project_root.is_dir():
+            return {"error": f"Project '{project_name}' not found."}
+
+        files_data = []
+        for file_path in project_root.rglob("*"):
+            if not file_path.is_file(): continue
+            if any(part in IGNORE_DIRS or part.endswith(".egg-info") for part in file_path.parts): continue
+
+            rel_path = str(file_path.relative_to(project_root))
+            if path_prefix and not rel_path.startswith(path_prefix): continue
+
+            suffix = file_path.suffix.lower()
+            if extension and extension != "*":
+                if suffix != extension.lower(): continue
+            elif suffix in IGNORE_EXTENSIONS or (suffix not in SUPPORTED_EXTENSIONS and suffix not in (".plist", ".conf", ".ini") and file_path.name.lower() not in ("docker-compose.yml", "docker-compose.yaml")):
+                continue
+
+            try:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    line_count = sum(1 for _ in f)
+            except Exception:
+                continue
+
+            language = "text"
+            if suffix == ".py": language = "python"
+            elif suffix in (".js", ".jsx"): language = "javascript"
+            elif suffix in (".ts", ".tsx"): language = "typescript"
+            elif suffix == ".md": language = "markdown"
+            elif suffix in (".yml", ".yaml"): language = "yaml"
+            elif suffix == ".json": language = "json"
+
+            files_data.append({"path": rel_path, "language": language, "line_count": line_count})
+
+        return {
+            "project": project_name,
+            "files": sorted(files_data, key=lambda x: x["path"]),
+            "total": len(files_data),
+            "filters": {"path_prefix": path_prefix, "extension": extension}
+        }
+
+    def search_symbols(self, query: str, project: str | None = None, top_k: int = 10) -> list[dict]:
+        results = self.search(query, project, top_k)
+        for hit in results:
+            hit.pop("content", None)
+        return results
+
+    def get_chunks_for_file(self, project_name: str, path: str) -> dict:
+        chunks = self._store.get_chunks_for_path(project_name, path)
+        if not chunks:
+            project_root = Path(self._projects_root) / project_name
+            if not project_root.exists() or not project_root.is_dir():
+                return {"error": f"Project '{project_name}' not found."}
+
+        simplified_chunks = []
+        for c in chunks:
+            simplified_chunks.append({
+                "symbol": c.get("symbol", ""),
+                "chunk_type": c.get("chunk_type", ""),
+                "start_line": c.get("start_line", 0),
+                "end_line": c.get("end_line", 0),
+            })
+
+        simplified_chunks.sort(key=lambda x: x["start_line"])
+        return {
+            "project": project_name,
+            "path": path,
+            "chunks": simplified_chunks,
+            "total": len(simplified_chunks)
+        }
+
+    def get_file(self, project_name: str, path: str, start_line: int | None = None, end_line: int | None = None) -> dict:
         project = get_project(project_name, self._projects_root)
         if not project:
             trace("error", event_source="get_file", message=f"Project not found: {project_name}",
-                  severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+                  severity="ERROR", subsystem="knowledge")
             return {"error": f"Project '{project_name}' not found"}
         file_path = project.path / path
         if not file_path.exists():
             trace("error", event_source="get_file",
                   message=f"File not found: {path}", project=project_name,
-                  severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+                  severity="ERROR", subsystem="knowledge")
             return {"error": f"File not found: {path} in project {project_name}"}
         if not file_path.is_file():
             return {"error": f"Path is not a file: {path}"}
@@ -126,7 +198,7 @@ class KnowledgeService:
             content = file_path.read_text(encoding="utf-8", errors="ignore")
         except OSError as e:
             trace("error", event_source="get_file", message=str(e), project=project_name,
-                  path=path, severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+                  path=path, severity="ERROR", subsystem="knowledge")
             return {"error": f"Could not read file: {e}"}
         
         lines = content.splitlines(keepends=True)
@@ -141,7 +213,7 @@ class KnowledgeService:
             sliced_content = "".join(lines[s_idx:e_idx])
             
         trace("get_file", project=project_name, path=path, start_line=start_line, end_line=end_line,
-              line_count=total_lines, subsystem="knowledge", trace_id=trace_id)
+              line_count=total_lines, subsystem="knowledge")
         
         ret = {
             "project": project_name,
@@ -155,24 +227,24 @@ class KnowledgeService:
             ret["end_line"] = end_line
         return ret
 
-    def reindex_project(self, project_name: str, force: bool = False, trace_id: str | None = None) -> dict:
+    def reindex_project(self, project_name: str, force: bool = False) -> dict:
         t0 = time.monotonic()
         project = get_project(project_name, self._projects_root)
         if not project:
             trace("error", event_source="reindex", message=f"Project not found: {project_name}",
-                  severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+                  severity="ERROR", subsystem="knowledge")
             return {"error": f"Project '{project_name}' not found"}
 
         if force:
             # Full reindex: wipe everything, rechunk all files
-            trace("reindex_start", project=project_name, mode="force", subsystem="knowledge", trace_id=trace_id)
+            trace("reindex_start", project=project_name, mode="force", subsystem="knowledge")
             self._store.delete_project(project_name)
-            trace("reindex_cleared", project=project_name, subsystem="knowledge", trace_id=trace_id)
+            trace("reindex_cleared", project=project_name, subsystem="knowledge")
             chunks = chunk_project(project.path, project_name)
             changed_chunks = chunks
         else:
             # Incremental reindex: skip unchanged files, re-embed changed/new, delete removed
-            trace("reindex_start", project=project_name, mode="incremental", subsystem="knowledge", trace_id=trace_id)
+            trace("reindex_start", project=project_name, mode="incremental", subsystem="knowledge")
             indexed_hashes = self._store.get_indexed_file_hashes(project_name)
 
             # Walk project files, compute current hashes
@@ -215,17 +287,17 @@ class KnowledgeService:
 
             trace("reindex_incremental_stats", project=project_name,
                   total=len(current_files), changed=len(changed_chunks),
-                  removed=len(removed), subsystem="knowledge", trace_id=trace_id)
+                  removed=len(removed), subsystem="knowledge")
 
         if not changed_chunks:
             duration_ms = round((time.monotonic() - t0) * 1000)
             trace("reindex_complete", project=project_name, chunks=0,
-                  duration_ms=duration_ms, message="No changes detected", subsystem="knowledge", trace_id=trace_id)
+                  duration_ms=duration_ms, message="No changes detected", subsystem="knowledge")
             self._invalidate_projects_cache()
             return {"project": project_name, "chunks_indexed": 0,
                     "message": "No changes detected"}
 
-        trace("reindex_chunked", project=project_name, chunks=len(changed_chunks), subsystem="knowledge", trace_id=trace_id)
+        trace("reindex_chunked", project=project_name, chunks=len(changed_chunks), subsystem="knowledge")
 
         batch_size = 32
         all_vectors: list[list[float]] = []
@@ -241,16 +313,16 @@ class KnowledgeService:
                 duration_ms = round((time.monotonic() - t_batch) * 1000)
                 trace("embed_batch", project=project_name, batch=batch_num,
                       total_batches=total_batches, size=len(batch), duration_ms=duration_ms,
-                      subsystem="knowledge", trace_id=trace_id)
+                      subsystem="knowledge")
             except RuntimeError as e:
                 trace("error", event_source="embedder", project=project_name,
-                      batch=batch_num, message=str(e), severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+                      batch=batch_num, message=str(e), severity="ERROR", subsystem="knowledge")
                 return {"project": project_name, "error": str(e), "chunks_indexed": 0}
 
         self._store.upsert_chunks(changed_chunks, all_vectors)
         duration_ms = round((time.monotonic() - t0) * 1000)
         trace("reindex_complete", project=project_name, chunks=len(changed_chunks),
-              duration_ms=duration_ms, subsystem="knowledge", trace_id=trace_id)
+              duration_ms=duration_ms, subsystem="knowledge")
         self._invalidate_projects_cache()
         return {"project": project_name, "chunks_indexed": len(changed_chunks),
                 "message": f"Successfully indexed {len(changed_chunks)} chunks"}
@@ -262,7 +334,6 @@ class KnowledgeService:
         description: str,
         rationale: str,
         options_considered: list[dict] | None = None,
-        trace_id: str | None = None,
     ) -> dict:
         """
         Append a timestamped decision entry to a Markdown memory file.
@@ -278,7 +349,7 @@ class KnowledgeService:
                 vault_dir.mkdir(parents=True, exist_ok=True)
             except OSError as e:
                 trace("error", event_source="log_decision", message=f"Failed to create vault dir: {e}",
-                      severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+                      severity="ERROR", subsystem="knowledge")
                 return {"error": f"Failed to create knowledge_vault directory: {e}"}
 
             vault_file = vault_dir / f"{topic}.md"
@@ -312,7 +383,7 @@ entries_count: 1
                     vault_file.write_text(initial, encoding="utf-8")
                 except OSError as e:
                     trace("error", event_source="log_decision", message=f"Failed to write initial file: {e}",
-                          severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+                          severity="ERROR", subsystem="knowledge")
                     return {"error": f"Failed to write decision file: {e}"}
             else:
                 try:
@@ -346,10 +417,10 @@ entries_count: 1
                     vault_file.write_text(updated_content, encoding="utf-8")
                 except OSError as e:
                     trace("error", event_source="log_decision", message=f"Failed to append to file: {e}",
-                          severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+                          severity="ERROR", subsystem="knowledge")
                     return {"error": f"Failed to update decision file: {e}"}
 
-        trace("log_decision", topic=topic, entry_name=name, subsystem="knowledge", trace_id=trace_id)
+        trace("log_decision", topic=topic, entry_name=name, subsystem="knowledge")
         return {"topic": topic, "message": f"Successfully logged decision '{name}' under topic '{topic}'"}
 
     def get_decision_history(
@@ -357,7 +428,6 @@ entries_count: 1
         topic: str,
         limit: int = 3,
         full_history: bool = False,
-        trace_id: str | None = None,
     ) -> dict:
         """
         Retrieve chronological decision log entries for a topic.
@@ -375,7 +445,7 @@ entries_count: 1
                 content = vault_file.read_text(encoding="utf-8", errors="ignore")
             except OSError as e:
                 trace("error", event_source="get_decision_history", message=f"Failed to read file: {e}",
-                      severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+                      severity="ERROR", subsystem="knowledge")
                 return {"error": f"Could not read decision log: {e}"}
 
         frontmatter = {}
@@ -415,7 +485,7 @@ entries_count: 1
 
         trace("get_decision_history", topic=topic, limit=limit, full_history=full_history,
               total_entries=total_count, shown_entries=len(ret_entries),
-              subsystem="knowledge", trace_id=trace_id)
+              subsystem="knowledge")
 
         return {
             "topic": topic,

@@ -246,3 +246,24 @@ def test_search_scores_are_rounded():
     mock_client.search.return_value = [_make_hit(0.912345, "h1")]
     results = store.search([0.1] * 10, top_k=5)
     assert results[0]["score"] == round(0.912345, 4)
+
+def test_get_chunks_for_path_uses_path_filter():
+    mock_client = MagicMock()
+    store = _make_store(mock_client)
+    mock_client.scroll.return_value = ([], None)
+    store.get_chunks_for_path("LENS", "src/auth.py")
+    mock_client.scroll.assert_called_once()
+    kwargs = mock_client.scroll.call_args.kwargs
+    filter_obj = kwargs["scroll_filter"]
+    assert len(filter_obj.must) == 2
+
+
+    keys = {cond.key for cond in filter_obj.must}
+    assert "project" in keys
+    assert "path" in keys
+
+    for cond in filter_obj.must:
+        if cond.key == "project":
+            assert cond.match.value == "LENS"
+        if cond.key == "path":
+            assert cond.match.value == "src/auth.py"

@@ -253,3 +253,135 @@ def test_get_project_context_file_count_excludes_ignore_dirs(svc, fake_projects_
         if p.is_file() and "__pycache__" not in p.parts
     )
     assert ctx["file_count"] == normal_count
+
+def test_list_files_returns_all_supported(svc, tmp_path):
+    proj_dir = tmp_path / "LENS"
+    proj_dir.mkdir()
+
+    (proj_dir / "test.py").write_text("print(1)")
+    (proj_dir / "doc.md").write_text("# Doc")
+    (proj_dir / "img.png").write_text("binary")
+
+    res = svc.list_files("LENS")
+    assert "error" not in res
+
+    files = res["files"]
+    paths = [f["path"] for f in files]
+    assert "test.py" in paths
+    assert "doc.md" in paths
+    assert "img.png" not in paths
+    assert res["total"] == 2
+
+def test_list_files_extension_filter(svc, tmp_path):
+    proj_dir = tmp_path / "LENS"
+    proj_dir.mkdir()
+    (proj_dir / "a.py").write_text("a")
+    (proj_dir / "b.md").write_text("b")
+
+    res = svc.list_files("LENS", extension=".py")
+    files = res["files"]
+    assert len(files) == 1
+    assert files[0]["path"] == "a.py"
+
+def test_list_files_path_prefix_filter(svc, tmp_path):
+    proj_dir = tmp_path / "LENS"
+    proj_dir.mkdir()
+    src_dir = proj_dir / "src"
+    src_dir.mkdir()
+    (src_dir / "a.py").write_text("a")
+    (proj_dir / "b.py").write_text("b")
+
+    res = svc.list_files("LENS", path_prefix="src/")
+    files = res["files"]
+    assert len(files) == 1
+    assert files[0]["path"] == "src/a.py"
+
+def test_list_files_unknown_project(svc, tmp_path):
+    res = svc.list_files("NOT_EXIST")
+    assert "error" in res
+
+def test_list_files_excludes_ignore_dirs(svc, tmp_path):
+    proj_dir = tmp_path / "LENS"
+    proj_dir.mkdir()
+    node_modules = proj_dir / "node_modules"
+    node_modules.mkdir()
+    (node_modules / "a.py").write_text("a")
+
+    res = svc.list_files("LENS")
+    assert res["total"] == 0
+
+def test_list_files_returns_line_count(svc, tmp_path):
+    proj_dir = tmp_path / "LENS"
+    proj_dir.mkdir()
+    (proj_dir / "test.py").write_text("1\n2\n3\n")
+
+    res = svc.list_files("LENS")
+    assert res["files"][0]["line_count"] == 3
+
+def test_search_symbols_no_content_in_results(svc, mock_store, mock_embedder):
+    mock_store.search.return_value = [{"path": "a.py", "symbol": "foo", "content": "body", "score": 0.9}]
+    mock_embedder.embed.return_value = [0.1, 0.2]
+
+    res = svc.search_symbols("foo")
+    assert "content" not in res[0]
+    assert res[0]["symbol"] == "foo"
+
+def test_search_symbols_has_required_fields(svc, mock_store, mock_embedder):
+    mock_store.search.return_value = [{
+        "path": "a.py", "symbol": "foo", "chunk_type": "function",
+        "start_line": 1, "end_line": 10, "score": 0.9, "project": "P"
+    }]
+    mock_embedder.embed.return_value = [0.1, 0.2]
+
+    res = svc.search_symbols("foo")
+    r = res[0]
+    for k in ["path", "symbol", "chunk_type", "start_line", "end_line", "score"]:
+        assert k in r
+
+def test_search_symbols_calls_embedder(svc, mock_store, mock_embedder):
+    mock_store.search.return_value = []
+    svc.search_symbols("query")
+    mock_embedder.embed.assert_called_once_with("query")
+
+def test_search_symbols_project_filter_passed(svc, mock_store, mock_embedder):
+    mock_store.search.return_value = []
+    svc.search_symbols("query", project="ALPHA")
+    mock_store.search.assert_called_once_with(mock_embedder.embed.return_value, top_k=10, project="ALPHA")
+
+def test_get_chunks_for_file_returns_symbol_map(svc, mock_store, tmp_path):
+    proj_dir = tmp_path / "LENS"
+    proj_dir.mkdir()
+    mock_store.get_chunks_for_path.return_value = [
+        {"symbol": "foo", "chunk_type": "func", "start_line": 10, "end_line": 20, "content": "x"}
+    ]
+
+    res = svc.get_chunks_for_file("LENS", "src/a.py")
+    assert res["total"] == 1
+    assert len(res["chunks"]) == 1
+
+def test_get_chunks_for_file_no_content_in_chunks(svc, mock_store, tmp_path):
+    proj_dir = tmp_path / "LENS"
+    proj_dir.mkdir()
+    mock_store.get_chunks_for_path.return_value = [
+        {"symbol": "foo", "chunk_type": "func", "start_line": 10, "end_line": 20, "content": "x"}
+    ]
+
+    res = svc.get_chunks_for_file("LENS", "src/a.py")
+    assert "content" not in res["chunks"][0]
+
+def test_get_chunks_for_file_sorted_by_start_line(svc, mock_store, tmp_path):
+    proj_dir = tmp_path / "LENS"
+    proj_dir.mkdir()
+    mock_store.get_chunks_for_path.return_value = [
+        {"symbol": "b", "start_line": 20},
+        {"symbol": "a", "start_line": 10},
+    ]
+
+    res = svc.get_chunks_for_file("LENS", "src/a.py")
+    assert res["chunks"][0]["symbol"] == "a"
+    assert res["chunks"][1]["symbol"] == "b"
+
+def test_get_chunks_for_file_unknown_project(svc, mock_store):
+    mock_store.get_chunks_for_path.return_value = []
+    res = svc.get_chunks_for_file("NOT_EXIST", "src/a.py")
+    assert "error" in res
