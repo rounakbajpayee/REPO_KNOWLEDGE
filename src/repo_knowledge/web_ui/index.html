@@ -1,0 +1,1549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Repository Knowledge Engine Dashboard</title>
+    <!-- Modern Premium Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    
+    <style>
+        /* Modern styling with curated HSL color palette (Glassmorphism & SLEEK Dark Mode) */
+        :root {
+            --bg-base: hsl(230, 25%, 9%);
+            --bg-surface: hsl(230, 25%, 12%);
+            --bg-surface-elevated: hsl(230, 25%, 16%);
+            
+            --border-subtle: hsl(230, 20%, 20%);
+            --border-active: hsl(250, 60%, 55%);
+            
+            --text-main: hsl(0, 0%, 92%);
+            --text-muted: hsl(230, 12%, 65%);
+            --text-dim: hsl(230, 10%, 45%);
+            
+            --primary: hsl(250, 80%, 65%);
+            --primary-hover: hsl(250, 90%, 72%);
+            --primary-glow: hsla(250, 80%, 65%, 0.15);
+            
+            --success: hsl(150, 70%, 50%);
+            --success-glow: hsla(150, 70%, 50%, 0.2);
+            --warning: hsl(35, 85%, 55%);
+            --error: hsl(350, 80%, 55%);
+            
+            --font-display: 'Outfit', sans-serif;
+            --font-sans: 'Space Grotesk', sans-serif;
+            --font-mono: 'Fira Code', monospace;
+            
+            --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: var(--font-sans);
+            line-height: 1.6;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 10% 20%, hsla(250, 80%, 65%, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, hsla(150, 70%, 50%, 0.03) 0%, transparent 40%);
+            background-attachment: fixed;
+        }
+
+        /* App Container & Layout */
+        .app-container {
+            max-width: 1300px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2.5rem;
+            border-bottom: 1px solid var(--border-subtle);
+            padding-bottom: 1.5rem;
+        }
+
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-icon {
+            width: 2.5rem;
+            height: 2.5rem;
+            background: linear-gradient(135deg, var(--primary), var(--success));
+            border-radius: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-family: var(--font-display);
+            box-shadow: 0 0 20px var(--primary-glow);
+        }
+
+        h1 {
+            font-family: var(--font-display);
+            font-size: 1.8rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            background: linear-gradient(to right, var(--text-main), var(--text-muted));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Health Monitors panel */
+        .health-monitors {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .monitor-card {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 1rem;
+            padding: 0.75rem 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            transition: var(--transition-smooth);
+        }
+
+        .monitor-card:hover {
+            border-color: var(--border-active);
+            transform: translateY(-2px);
+        }
+
+        .indicator {
+            width: 0.65rem;
+            height: 0.65rem;
+            border-radius: 50%;
+            display: inline-block;
+            background-color: var(--text-dim);
+            box-shadow: 0 0 8px transparent;
+            transition: var(--transition-smooth);
+        }
+
+        .indicator.connected {
+            background-color: var(--success);
+            box-shadow: 0 0 12px var(--success-glow);
+        }
+
+        .indicator.disconnected {
+            background-color: var(--error);
+            box-shadow: 0 0 12px hsla(350, 80%, 55%, 0.3);
+        }
+
+        .monitor-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .monitor-val {
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: var(--font-display);
+        }
+
+        /* Tab Switcher styling */
+        .tabs-header {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            background-color: var(--bg-surface);
+            padding: 0.4rem;
+            border-radius: 0.75rem;
+            border: 1px solid var(--border-subtle);
+            width: fit-content;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            padding: 0.6rem 1.5rem;
+            font-family: var(--font-display);
+            font-size: 0.95rem;
+            font-weight: 500;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        .tab-btn:hover {
+            color: var(--text-main);
+            background-color: var(--bg-surface-elevated);
+        }
+
+        .tab-btn.active {
+            color: var(--text-main);
+            background-color: var(--primary);
+            box-shadow: 0 4px 12px var(--primary-glow);
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Grid layouts */
+        .grid-dashboard {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 2rem;
+        }
+
+        @media (max-width: 900px) {
+            .grid-dashboard {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 1.25rem;
+            padding: 1.75rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            margin-bottom: 2rem;
+            transition: var(--transition-smooth);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .card h2 {
+            font-family: var(--font-display);
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+
+        /* Primary action button styling */
+        .btn {
+            background-color: var(--primary);
+            color: var(--text-main);
+            border: none;
+            font-family: var(--font-display);
+            font-weight: 600;
+            font-size: 0.95rem;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.75rem;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            box-shadow: 0 4px 14px var(--primary-glow);
+        }
+
+        .btn:hover {
+            background-color: var(--primary-hover);
+            transform: translateY(-1px);
+        }
+
+        .btn:disabled {
+            background-color: var(--text-dim);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+        .btn-outline {
+            background: none;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .btn-outline:hover {
+            border-color: var(--border-active);
+            background-color: var(--bg-surface-elevated);
+        }
+
+        /* Projects Table design */
+        .projects-table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            color: var(--text-muted);
+            font-weight: 500;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 1rem;
+            border-bottom: 2px solid var(--border-subtle);
+        }
+
+        td {
+            padding: 1.25rem 1rem;
+            border-bottom: 1px solid var(--border-subtle);
+            font-size: 0.95rem;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.25rem 0.6rem;
+            border-radius: 2rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .status-badge.indexed {
+            background-color: hsla(150, 70%, 50%, 0.1);
+            color: var(--success);
+        }
+
+        .status-badge.unindexed {
+            background-color: hsla(350, 80%, 55%, 0.1);
+            color: var(--error);
+        }
+
+        .stack-badge {
+            background-color: var(--bg-surface-elevated);
+            padding: 0.2rem 0.5rem;
+            border-radius: 0.4rem;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            border: 1px solid var(--border-subtle);
+        }
+
+        /* Search Sandbox inputs styling */
+        .search-form {
+            display: grid;
+            grid-template-columns: 1fr auto auto;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        @media (max-width: 700px) {
+            .search-form {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .input-group label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        input[type="text"], select {
+            background-color: var(--bg-surface-elevated);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-main);
+            padding: 0.75rem 1rem;
+            border-radius: 0.75rem;
+            font-family: var(--font-sans);
+            font-size: 0.95rem;
+            outline: none;
+            transition: var(--transition-smooth);
+        }
+
+        input[type="text"]:focus, select:focus {
+            border-color: var(--border-active);
+            box-shadow: 0 0 10px var(--primary-glow);
+        }
+
+        /* Search Results layout */
+        .search-results {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .search-hit {
+            background-color: var(--bg-surface-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: 1rem;
+            overflow: hidden;
+            transition: var(--transition-smooth);
+        }
+
+        .search-hit:hover {
+            border-color: var(--border-active);
+            transform: translateY(-1px);
+        }
+
+        .hit-header {
+            padding: 1rem 1.25rem;
+            background-color: rgba(255,255,255,0.02);
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .hit-title {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .hit-file {
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: var(--text-main);
+        }
+
+        .hit-symbol {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            background-color: var(--bg-base);
+            padding: 0.2rem 0.5rem;
+            border-radius: 0.3rem;
+            border: 1px solid var(--border-subtle);
+            color: var(--primary);
+        }
+
+        .hit-meta {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .hit-score {
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: 0.9rem;
+            color: var(--success);
+        }
+
+        .hit-quality {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            padding: 0.2rem 0.5rem;
+            border-radius: 0.25rem;
+        }
+
+        .hit-quality.good {
+            background-color: hsla(150, 70%, 50%, 0.1);
+            color: var(--success);
+        }
+
+        .hit-quality.low {
+            background-color: hsla(35, 85%, 55%, 0.1);
+            color: var(--warning);
+        }
+
+        .hit-body {
+            padding: 1.25rem;
+            position: relative;
+        }
+
+        pre {
+            background-color: var(--bg-base);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            overflow-x: auto;
+            border: 1px solid var(--border-subtle);
+        }
+
+        code {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: hsl(200, 100%, 85%);
+        }
+
+        /* Real-time terminal styling */
+        .terminal-container {
+            background-color: hsl(230, 25%, 6%);
+            border: 1px solid var(--border-subtle);
+            border-radius: 1.25rem;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .terminal-header {
+            background-color: var(--bg-surface);
+            padding: 0.75rem 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .terminal-dots {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .terminal-dot {
+            width: 0.75rem;
+            height: 0.75rem;
+            border-radius: 50%;
+        }
+
+        .terminal-dot.red { background-color: hsl(350, 70%, 50%); }
+        .terminal-dot.yellow { background-color: hsl(35, 70%, 50%); }
+        .terminal-dot.green { background-color: hsl(150, 70%, 50%); }
+
+        .terminal-title {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            letter-spacing: 0.05em;
+        }
+
+        .terminal-body {
+            height: 500px;
+            overflow-y: auto;
+            padding: 1.25rem;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .log-row {
+            display: flex;
+            gap: 1rem;
+            align-items: flex-start;
+            animation: logFadeIn 0.2s ease-out forwards;
+        }
+
+        @keyframes logFadeIn {
+            from { opacity: 0; transform: translateX(-4px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .log-ts {
+            color: var(--text-dim);
+            white-space: nowrap;
+        }
+
+        .log-subsystem {
+            color: var(--primary);
+            font-weight: 500;
+            min-width: 70px;
+            text-align: right;
+        }
+
+        .log-severity {
+            font-weight: 700;
+            min-width: 55px;
+        }
+
+        .log-severity.INFO { color: hsl(190, 80%, 50%); }
+        .log-severity.DEBUG { color: var(--text-dim); }
+        .log-severity.WARNING { color: var(--warning); }
+        .log-severity.ERROR { color: var(--error); }
+
+        .log-msg {
+            color: var(--text-main);
+            word-break: break-all;
+        }
+
+        .log-duration {
+            color: var(--success);
+            font-size: 0.75rem;
+        }
+
+        /* General UI states */
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1.5rem;
+            color: var(--text-muted);
+        }
+
+        .empty-state svg {
+            width: 3.5rem;
+            height: 3.5rem;
+            color: var(--text-dim);
+            margin-bottom: 1rem;
+        }
+
+        .progress-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(10, 10, 15, 0.85);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            backdrop-filter: blur(8px);
+        }
+
+        .progress-card {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 1.5rem;
+            padding: 2.5rem;
+            max-width: 450px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.5);
+        }
+
+        .spinner {
+            width: 3.5rem;
+            height: 3.5rem;
+            border: 4px solid var(--bg-surface-elevated);
+            border-top: 4px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1.5rem;
+            box-shadow: 0 0 15px var(--primary-glow);
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .progress-title {
+            font-family: var(--font-display);
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .progress-subtitle {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+        }
+
+        /* ── Project Doc View ─────────────────────────────────────────── */
+
+        .doc-view-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(8, 9, 18, 0.7);
+            backdrop-filter: blur(6px);
+            z-index: 500;
+            display: flex;
+            align-items: stretch;
+            justify-content: flex-end;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .doc-view-overlay.open {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .doc-panel {
+            width: min(860px, 92vw);
+            height: 100vh;
+            background: var(--bg-surface);
+            border-left: 1px solid var(--border-subtle);
+            display: flex;
+            flex-direction: column;
+            transform: translateX(40px);
+            transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: -20px 0 60px rgba(0,0,0,0.5);
+        }
+
+        .doc-view-overlay.open .doc-panel {
+            transform: translateX(0);
+        }
+
+        .doc-panel-header {
+            padding: 1.5rem 2rem 1rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            gap: 1.25rem;
+            background: var(--bg-surface);
+            flex-shrink: 0;
+        }
+
+        .doc-back-btn {
+            background: none;
+            border: 1px solid var(--border-subtle);
+            color: var(--text-muted);
+            padding: 0.4rem 0.9rem;
+            border-radius: 0.5rem;
+            font-family: var(--font-display);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .doc-back-btn:hover {
+            border-color: var(--border-active);
+            color: var(--text-main);
+            background: var(--bg-surface-elevated);
+        }
+
+        .doc-project-name {
+            font-family: var(--font-display);
+            font-size: 1.35rem;
+            font-weight: 700;
+            flex: 1;
+        }
+
+        /* Doc toggle pills */
+        .doc-toggle {
+            display: flex;
+            gap: 0.5rem;
+            padding: 1rem 2rem 0;
+            flex-wrap: wrap;
+            flex-shrink: 0;
+        }
+
+        .doc-pill {
+            background: var(--bg-surface-elevated);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-muted);
+            padding: 0.4rem 1.1rem;
+            border-radius: 2rem;
+            font-family: var(--font-display);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        .doc-pill:hover {
+            border-color: var(--border-active);
+            color: var(--text-main);
+        }
+
+        .doc-pill.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #fff;
+            box-shadow: 0 3px 12px var(--primary-glow);
+        }
+
+        /* Markdown rendered body */
+        .doc-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.75rem 2rem 3rem;
+        }
+
+        .doc-content-area {
+            opacity: 1;
+            transition: opacity 0.2s ease;
+        }
+
+        .doc-content-area.fading {
+            opacity: 0;
+        }
+
+        .markdown-body {
+            color: var(--text-main);
+            line-height: 1.8;
+            max-width: 780px;
+        }
+
+        .markdown-body h1, .markdown-body h2, .markdown-body h3,
+        .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+            font-family: var(--font-display);
+            margin-top: 2rem;
+            margin-bottom: 0.75rem;
+            font-weight: 600;
+        }
+        .markdown-body h1 { font-size: 1.6rem; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem; }
+        .markdown-body h2 { font-size: 1.25rem; color: var(--text-main); }
+        .markdown-body h3 { font-size: 1.05rem; color: var(--text-muted); }
+        .markdown-body p { margin-bottom: 1rem; }
+        .markdown-body ul, .markdown-body ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+        .markdown-body li { margin-bottom: 0.3rem; }
+        .markdown-body a { color: var(--primary); text-decoration: underline; }
+        .markdown-body a:hover { color: var(--primary-hover); }
+        .markdown-body blockquote {
+            border-left: 3px solid var(--border-active);
+            margin: 1rem 0;
+            padding: 0.5rem 1rem;
+            background: var(--bg-surface-elevated);
+            border-radius: 0 0.5rem 0.5rem 0;
+            color: var(--text-muted);
+        }
+        .markdown-body code {
+            background: var(--bg-surface-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: 0.3rem;
+            padding: 0.1em 0.4em;
+            font-family: var(--font-mono);
+            font-size: 0.85em;
+            color: hsl(200, 100%, 80%);
+        }
+        .markdown-body pre {
+            background: hsl(230, 25%, 6%);
+            border: 1px solid var(--border-subtle);
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            overflow-x: auto;
+            margin: 1.25rem 0;
+        }
+        .markdown-body pre code {
+            background: none;
+            border: none;
+            padding: 0;
+            font-size: 0.85rem;
+        }
+        .markdown-body table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1rem 0;
+        }
+        .markdown-body th, .markdown-body td {
+            border: 1px solid var(--border-subtle);
+            padding: 0.6rem 0.9rem;
+        }
+        .markdown-body th {
+            background: var(--bg-surface-elevated);
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+        .markdown-body img { max-width: 100%; border-radius: 0.5rem; }
+        .markdown-body hr { border: none; border-top: 1px solid var(--border-subtle); margin: 1.5rem 0; }
+
+        /* Clickable project name in table */
+        .project-name-link {
+            background: none;
+            border: none;
+            color: var(--text-main);
+            font-weight: 600;
+            font-size: 0.95rem;
+            font-family: var(--font-sans);
+            cursor: pointer;
+            padding: 0;
+            text-align: left;
+            transition: color 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .project-name-link:hover {
+            color: var(--primary);
+        }
+
+        .project-name-link::after {
+            content: '↗';
+            font-size: 0.7rem;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .project-name-link:hover::after {
+            opacity: 0.6;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <!-- Header -->
+        <header>
+            <div class="logo-container">
+                <div class="logo-icon">&alpha;g</div>
+                <div>
+                    <h1>Repository Knowledge Engine</h1>
+                    <p style="font-size: 0.8rem; color: var(--text-muted);">Decoupled Relational System & AI Interface Monitor</p>
+                </div>
+            </div>
+            
+            <div class="health-monitors">
+                <div class="monitor-card" title="PostgreSQL connection state">
+                    <span id="health-postgres-light" class="indicator"></span>
+                    <div>
+                        <div class="monitor-label">PostgreSQL 16</div>
+                        <div class="monitor-val" id="health-postgres-text">Checking...</div>
+                    </div>
+                </div>
+                <div class="monitor-card" title="Qdrant Vector Cache state">
+                    <span id="health-qdrant-light" class="indicator"></span>
+                    <div>
+                        <div class="monitor-label">Qdrant Cache</div>
+                        <div class="monitor-val" id="health-qdrant-text">Checking...</div>
+                    </div>
+                </div>
+                <div class="monitor-card" title="Ollama Embedding engine state">
+                    <span id="health-ollama-light" class="indicator"></span>
+                    <div>
+                        <div class="monitor-label">Ollama Embedder</div>
+                        <div class="monitor-val" id="health-ollama-text">Checking...</div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Tab Controls -->
+        <div class="tabs-header">
+            <button class="tab-btn active" onclick="switchTab('dashboard')">Workspace Registry</button>
+            <button class="tab-btn" onclick="switchTab('sandbox')">Search Sandbox</button>
+            <button class="tab-btn" onclick="switchTab('logs')">Traces Console</button>
+        </div>
+
+        <!-- ── TAB: DASHBOARD ── -->
+        <div id="tab-dashboard" class="tab-content active">
+            <div class="grid-dashboard">
+                
+                <!-- Projects List -->
+                <div class="card" style="margin-bottom: 0;">
+                    <div class="card-header">
+                        <h2>Monitored Workspaces</h2>
+                        <button class="btn btn-outline" onclick="fetchProjects()">Refresh</button>
+                    </div>
+                    <div class="projects-table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Project Name</th>
+                                    <th>Stack</th>
+                                    <th>File Registry</th>
+                                    <th>Cached Chunks</th>
+                                    <th>Sync State</th>
+                                    <th style="text-align: right;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="projects-table-body">
+                                <tr>
+                                    <td colspan="6" class="empty-state">Loading workspaces...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Utilities Sidebar -->
+                <div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Vector Utilities</h2>
+                        </div>
+                        <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1.5rem;">
+                            The PostgreSQL database stores the plain text Source of Truth. If you change the active embedding model in your setup, click below to re-embed all code chunks into Qdrant losslessly.
+                        </p>
+                        <button class="btn" style="width: 100%; justify-content: center;" onclick="reEmbedAll()">
+                            <svg style="width:1.2rem; height:1.2rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3-3 3 3m-3-3v12"></path>
+                            </svg>
+                            Lossless Re-embed Vector Cache
+                        </button>
+                    </div>
+                    
+                    <div class="card">
+                        <h2>System Stats</h2>
+                        <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.9rem;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: var(--text-muted);">Database Port</span>
+                                <span style="font-family: var(--font-mono);">5434</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: var(--text-muted);">Database Host</span>
+                                <span>192.168.0.234</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: var(--text-muted);">Filewatcher Status</span>
+                                <span style="color: var(--success); font-weight:600;">ACTIVE (Silent Startup)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- ── TAB: SEARCH SANDBOX ── -->
+        <div id="tab-sandbox" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Semantic Vector Query Playground</h2>
+                </div>
+                
+                <form class="search-form" onsubmit="performSearch(event)">
+                    <div class="input-group">
+                        <label for="search-query">Vector Search Query</label>
+                        <input type="text" id="search-query" placeholder="Type a natural language query... e.g. 'how do we connect to Postgres?'" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="search-project">Filter Workspace</label>
+                        <select id="search-project">
+                            <option value="">All Workspaces</option>
+                        </select>
+                    </div>
+                    <div class="input-group" style="justify-content: flex-end;">
+                        <button type="submit" class="btn">
+                            <svg style="width:1.2rem; height:1.2rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                            </svg>
+                            Query
+                        </button>
+                    </div>
+                </form>
+
+                <div class="search-results" id="search-results-container">
+                    <div class="empty-state">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                        </svg>
+                        <p>Submit a search query above to inspect similarity ranks and code chunks.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── TAB: LOGS CONSOLE ── -->
+        <div id="tab-logs" class="tab-content">
+            <div class="terminal-container">
+                <div class="terminal-header">
+                    <div class="terminal-dots">
+                        <div class="terminal-dot red"></div>
+                        <div class="terminal-dot yellow"></div>
+                        <div class="terminal-dot green"></div>
+                    </div>
+                    <div class="terminal-title">audit_logs@repo_knowledge_db</div>
+                    <button class="btn btn-outline" style="padding: 0.3rem 0.75rem; font-size: 0.75rem; border-radius: 0.4rem;" onclick="clearLogs()">Clear Console</button>
+                </div>
+                <div class="terminal-body" id="terminal-body">
+                    <!-- Logs stream goes here -->
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Progress overlay -->
+    <div class="progress-overlay" id="progress-overlay">
+        <div class="progress-card">
+            <div class="spinner"></div>
+            <div class="progress-title" id="progress-title">Processing</div>
+            <div class="progress-subtitle" id="progress-subtitle">Please stand by while tasks execute in the background...</div>
+        </div>
+    </div>
+
+    <!-- Project Doc View Overlay -->
+    <div class="doc-view-overlay" id="doc-view-overlay" onclick="handleDocOverlayClick(event)">
+        <div class="doc-panel" id="doc-panel">
+            <div class="doc-panel-header">
+                <button class="doc-back-btn" id="doc-back-btn" onclick="closeDocView()">
+                    &#8592; Back
+                </button>
+                <div>
+                    <div class="doc-project-name" id="doc-project-name">Project</div>
+                    <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.15rem;" id="doc-project-stack"></div>
+                </div>
+            </div>
+            <div class="doc-toggle" id="doc-toggle"></div>
+            <div class="doc-body">
+                <div class="doc-content-area" id="doc-content-area">
+                    <div class="markdown-body" id="doc-markdown-body"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard Scripts -->
+    <!-- marked.js for client-side markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+    <script>
+        // State
+        let activeTab = 'dashboard';
+        let projectList = [];
+        let logEventSource = null;
+        let docData = {};  // { label, filename, content }[] for active project
+        let activeDocIndex = 0;
+
+        // Keyboard: close doc panel on Escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeDocView();
+        });
+
+        // Init
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchStatus();
+            fetchProjects();
+            startLogsStream();
+            
+            // Poll health checks and stats every 5s
+            setInterval(() => {
+                fetchStatus();
+            }, 5000);
+        });
+
+        // Tab switcher
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            const selectedBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.textContent.toLowerCase().includes(tabId.substring(0, 4)));
+            if (selectedBtn) selectedBtn.classList.add('active');
+            
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+            activeTab = tabId;
+        }
+
+        // Fetch Connection Status
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                
+                // PostgreSQL UI Update
+                const pgLight = document.getElementById('health-postgres-light');
+                const pgText = document.getElementById('health-postgres-text');
+                pgLight.className = `indicator ${data.postgres.status === 'connected' ? 'connected' : 'disconnected'}`;
+                pgText.textContent = data.postgres.status === 'connected' ? `Connected (${data.postgres.host})` : 'Offline';
+
+                // Qdrant UI Update
+                const qdLight = document.getElementById('health-qdrant-light');
+                const qdText = document.getElementById('health-qdrant-text');
+                qdLight.className = `indicator ${data.qdrant.status === 'connected' ? 'connected' : 'disconnected'}`;
+                qdText.textContent = data.qdrant.status === 'connected' ? 'Connected (Cache OK)' : 'Offline';
+
+                // Ollama UI Update
+                const olLight = document.getElementById('health-ollama-light');
+                const olText = document.getElementById('health-ollama-text');
+                olLight.className = `indicator ${data.ollama.status === 'connected' ? 'connected' : 'disconnected'}`;
+                olText.textContent = data.ollama.status === 'connected' ? data.ollama.model : 'Offline';
+            } catch (err) {
+                console.error("Failed to fetch connection status", err);
+            }
+        }
+
+        // Fetch Workspaces list
+        async function fetchProjects() {
+            try {
+                const res = await fetch('/api/projects');
+                const projects = await res.json();
+                projectList = projects;
+                
+                // Populate project select filter in sandbox
+                const selectFilter = document.getElementById('search-project');
+                selectFilter.innerHTML = '<option value="">All Workspaces</option>';
+                projects.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.name;
+                    opt.textContent = p.name;
+                    selectFilter.appendChild(opt);
+                });
+
+                // Render table
+                const tableBody = document.getElementById('projects-table-body');
+                if (projects.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="6" class="empty-state">No workspaces scanned yet.</td></tr>';
+                    return;
+                }
+
+                tableBody.innerHTML = '';
+                projects.forEach(p => {
+                    const row = document.createElement('tr');
+                    
+                    const cellName = document.createElement('td');
+                    // Make name a clickable button to open the doc view
+                    const nameBtn = document.createElement('button');
+                    nameBtn.className = 'project-name-link';
+                    nameBtn.textContent = p.name;
+                    nameBtn.title = `View docs for ${p.name}`;
+                    nameBtn.onclick = () => openProjectDocs(p.name);
+                    cellName.appendChild(nameBtn);
+                    
+                    const cellStack = document.createElement('td');
+                    const stackSpan = document.createElement('span');
+                    stackSpan.className = 'stack-badge';
+                    stackSpan.textContent = p.stack;
+                    cellStack.appendChild(stackSpan);
+
+                    const cellFiles = document.createElement('td');
+                    cellFiles.textContent = p.indexed ? `${p.file_count} files` : '--';
+
+                    const cellChunks = document.createElement('td');
+                    cellChunks.textContent = p.indexed ? `${p.chunk_count} chunks` : '--';
+
+                    const cellState = document.createElement('td');
+                    const stateBadge = document.createElement('span');
+                    stateBadge.className = `status-badge ${p.indexed ? 'indexed' : 'unindexed'}`;
+                    stateBadge.innerHTML = p.indexed ? '&bull; Indexed' : '&bull; Unindexed';
+                    cellState.appendChild(stateBadge);
+
+                    const cellAction = document.createElement('td');
+                    cellAction.style.textAlign = 'right';
+                    const indexBtn = document.createElement('button');
+                    indexBtn.className = 'btn btn-outline';
+                    indexBtn.style.padding = '0.4rem 0.8rem';
+                    indexBtn.style.fontSize = '0.85rem';
+                    indexBtn.textContent = p.indexed ? 'Reindex' : 'Index';
+                    indexBtn.onclick = () => triggerReindex(p.name);
+                    cellAction.appendChild(indexBtn);
+
+                    row.appendChild(cellName);
+                    row.appendChild(cellStack);
+                    row.appendChild(cellFiles);
+                    row.appendChild(cellChunks);
+                    row.appendChild(cellState);
+                    row.appendChild(cellAction);
+                    tableBody.appendChild(row);
+                });
+            } catch (err) {
+                console.error("Failed to fetch projects list", err);
+            }
+        }
+
+        // Trigger indexing on a project
+        async function triggerReindex(projectName) {
+            showProgress('Indexing Workspace', `Scanning files and computing code vectors for '${projectName}'...`);
+            try {
+                const res = await fetch('/api/reindex', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: jsonStr = JSON.stringify({project: projectName})
+                });
+                const result = await res.json();
+                hideProgress();
+                if (result.error) {
+                    alert(`Indexing failed: ${result.error}`);
+                } else {
+                    fetchProjects();
+                }
+            } catch (err) {
+                hideProgress();
+                alert(`Error: ${err}`);
+            }
+        }
+
+        // Trigger re-embedding across all projects
+        async function reEmbedAll() {
+            if (!confirm("Are you sure you want to re-embed all projects? This will wipe the Qdrant vector database cache and generate new vectors for all stored code chunks from PostgreSQL. This is useful when switching embedding models.")) {
+                return;
+            }
+            showProgress('Lossless Re-embedding Cache', 'Regenerating code vectors for all projects using the active embedding model...');
+            try {
+                const res = await fetch('/api/re_embed', {
+                    method: 'POST'
+                });
+                const result = await res.json();
+                hideProgress();
+                if (result.error) {
+                    alert(`Re-embedding failed: ${result.error}`);
+                } else {
+                    alert(result.message || "Re-embedding completed successfully!");
+                    fetchProjects();
+                }
+            } catch (err) {
+                hideProgress();
+                alert(`Error: ${err}`);
+            }
+        }
+
+        // Search playground
+        async function performSearch(e) {
+            e.preventDefault();
+            const queryVal = document.getElementById('search-query').value;
+            const projectVal = document.getElementById('search-project').value;
+            
+            const resultsContainer = document.getElementById('search-results-container');
+            resultsContainer.innerHTML = '<div class="empty-state"><div class="spinner" style="width:2rem;height:2rem;margin-bottom:0.5rem;"></div><p>Searching code vectors...</p></div>';
+
+            try {
+                const res = await fetch('/api/search', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({query: queryVal, project: projectVal || null, top_k: 5})
+                });
+                const results = await res.json();
+
+                if (results.length === 0) {
+                    resultsContainer.innerHTML = '<div class="empty-state"><p>No relevant code blocks found.</p></div>';
+                    return;
+                }
+
+                resultsContainer.innerHTML = '';
+                results.forEach(hit => {
+                    const card = document.createElement('div');
+                    card.className = 'search-hit';
+
+                    const header = document.createElement('div');
+                    header.className = 'hit-header';
+
+                    const titleDiv = document.createElement('div');
+                    titleDiv.className = 'hit-title';
+                    const fileSpan = document.createElement('span');
+                    fileSpan.className = 'hit-file';
+                    fileSpan.textContent = `${hit.project} / ${hit.path}:${hit.start_line}-${hit.end_line}`;
+                    titleDiv.appendChild(fileSpan);
+
+                    if (hit.symbol) {
+                        const symSpan = document.createElement('span');
+                        symSpan.className = 'hit-symbol';
+                        symSpan.textContent = hit.symbol;
+                        titleDiv.appendChild(symSpan);
+                    }
+                    header.appendChild(titleDiv);
+
+                    const metaDiv = document.createElement('div');
+                    metaDiv.className = 'hit-meta';
+                    const scoreSpan = document.createElement('span');
+                    scoreSpan.className = 'hit-score';
+                    scoreSpan.textContent = `Score: ${(hit.score * 100).toFixed(1)}%`;
+                    metaDiv.appendChild(scoreSpan);
+
+                    const qualSpan = document.createElement('span');
+                    qualSpan.className = `hit-quality ${hit.search_quality || 'low'}`;
+                    qualSpan.textContent = hit.search_quality || 'low';
+                    metaDiv.appendChild(qualSpan);
+                    header.appendChild(metaDiv);
+
+                    card.appendChild(header);
+
+                    const body = document.createElement('div');
+                    body.className = 'hit-body';
+                    const pre = document.createElement('pre');
+                    const code = document.createElement('code');
+                    code.textContent = hit.content;
+                    pre.appendChild(code);
+                    body.appendChild(pre);
+                    card.appendChild(body);
+
+                    resultsContainer.appendChild(card);
+                });
+            } catch (err) {
+                resultsContainer.innerHTML = `<div class="empty-state" style="color:var(--error);"><p>Search error: ${err}</p></div>`;
+            }
+        }
+
+        // Live logs stream SSE
+        function startLogsStream() {
+            const terminal = document.getElementById('terminal-body');
+            
+            if (logEventSource) {
+                logEventSource.close();
+            }
+
+            logEventSource = new EventSource('/api/logs');
+            logEventSource.onmessage = (event) => {
+                const log = JSON.parse(event.data);
+                
+                const logRow = document.createElement('div');
+                logRow.className = 'log-row';
+
+                // Timestamp
+                const tsSpan = document.createElement('span');
+                tsSpan.className = 'log-ts';
+                // Display time cleanly HH:MM:SS
+                try {
+                    const dt = new Date(log.ts);
+                    tsSpan.textContent = dt.toTimeString().split(' ')[0];
+                } catch(e) {
+                    tsSpan.textContent = log.ts.substring(11, 19);
+                }
+                logRow.appendChild(tsSpan);
+
+                // Subsystem
+                const subSpan = document.createElement('span');
+                subSpan.className = 'log-subsystem';
+                subSpan.textContent = `[${log.subsystem.toUpperCase()}]`;
+                logRow.appendChild(subSpan);
+
+                // Severity
+                const sevSpan = document.createElement('span');
+                sevSpan.className = `log-severity ${log.severity}`;
+                sevSpan.textContent = log.severity.padEnd(5);
+                logRow.appendChild(sevSpan);
+
+                // Message & Duration
+                const msgSpan = document.createElement('span');
+                msgSpan.className = 'log-msg';
+                msgSpan.textContent = log.event;
+                if (log.duration_ms !== null && log.duration_ms !== undefined) {
+                    const durSpan = document.createElement('span');
+                    durSpan.className = 'log-duration';
+                    durSpan.textContent = ` (${log.duration_ms}ms)`;
+                    msgSpan.appendChild(durSpan);
+                }
+                
+                // If payload is present, print it as details
+                if (log.payload && Object.keys(log.payload).length > 0) {
+                    const payloadSpan = document.createElement('div');
+                    payloadSpan.style.color = 'var(--text-dim)';
+                    payloadSpan.style.fontSize = '0.75rem';
+                    payloadSpan.style.paddingLeft = '1rem';
+                    payloadSpan.style.marginTop = '0.1rem';
+                    payloadSpan.style.fontFamily = 'var(--font-mono)';
+                    payloadSpan.textContent = JSON.stringify(log.payload);
+                    msgSpan.appendChild(payloadSpan);
+                }
+
+                logRow.appendChild(msgSpan);
+                
+                terminal.appendChild(logRow);
+                
+                // Auto-scroll to bottom
+                terminal.scrollTop = terminal.scrollHeight;
+
+                // Keep log size bounded to 500 records
+                while (terminal.childElementCount > 500) {
+                    terminal.removeChild(terminal.firstElementChild);
+                }
+            };
+
+            logEventSource.onerror = (err) => {
+                console.error("SSE stream encountered connection failure. Retrying...", err);
+            };
+        }
+
+        function clearLogs() {
+            document.getElementById('terminal-body').innerHTML = '';
+        }
+
+        // Overlay Utilities
+        function showProgress(title, subtitle) {
+            document.getElementById('progress-title').textContent = title;
+            document.getElementById('progress-subtitle').textContent = subtitle;
+            document.getElementById('progress-overlay').style.display = 'flex';
+        }
+
+        function hideProgress() {
+            document.getElementById('progress-overlay').style.display = 'none';
+        }
+
+        // ── Project Doc View ─────────────────────────────────────────────────
+
+        async function openProjectDocs(projectName) {
+            docData = [];
+            activeDocIndex = 0;
+
+            const overlay = document.getElementById('doc-view-overlay');
+            const nameEl = document.getElementById('doc-project-name');
+            const stackEl = document.getElementById('doc-project-stack');
+            const toggleEl = document.getElementById('doc-toggle');
+            const bodyEl = document.getElementById('doc-markdown-body');
+
+            nameEl.textContent = projectName;
+            stackEl.textContent = '';
+            toggleEl.innerHTML = '';
+            bodyEl.innerHTML = '<div class="empty-state"><div class="spinner" style="width:2rem;height:2rem;margin:0 auto;"></div></div>';
+
+            overlay.classList.add('open');
+            document.body.style.overflow = 'hidden';
+
+            try {
+                const res = await fetch(`/api/projects/${encodeURIComponent(projectName)}/docs`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+
+                docData = data.docs || [];
+                stackEl.textContent = data.stack ? `Stack: ${data.stack}` : '';
+
+                // Build toggle pills
+                toggleEl.innerHTML = '';
+                if (docData.length === 0) {
+                    bodyEl.innerHTML = '<div class="empty-state"><p>No documentation files found for this project.</p></div>';
+                    return;
+                }
+
+                docData.forEach((doc, idx) => {
+                    const pill = document.createElement('button');
+                    pill.className = 'doc-pill' + (idx === 0 ? ' active' : '');
+                    pill.textContent = doc.label;
+                    pill.dataset.idx = idx;
+                    pill.onclick = () => switchDoc(idx);
+                    toggleEl.appendChild(pill);
+                });
+
+                renderDoc(0);
+
+            } catch (err) {
+                bodyEl.innerHTML = `<div class="empty-state" style="color:var(--error);"><p>Failed to load docs: ${err}</p></div>`;
+            }
+        }
+
+        function renderDoc(idx) {
+            const bodyEl = document.getElementById('doc-markdown-body');
+            const doc = docData[idx];
+            if (!doc) return;
+
+            // Use marked.js if available, fall back to <pre>
+            if (typeof marked !== 'undefined') {
+                bodyEl.innerHTML = marked.parse(doc.content, { gfm: true, breaks: false });
+            } else {
+                bodyEl.innerHTML = `<pre style="white-space:pre-wrap;word-break:break-word;">${
+                    doc.content.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                }</pre>`;
+            }
+        }
+
+        function switchDoc(idx) {
+            if (idx === activeDocIndex) return;
+            const contentArea = document.getElementById('doc-content-area');
+            contentArea.classList.add('fading');
+
+            setTimeout(() => {
+                // Update pills
+                document.querySelectorAll('.doc-pill').forEach((p, i) => {
+                    p.classList.toggle('active', i === idx);
+                });
+                activeDocIndex = idx;
+                renderDoc(idx);
+                contentArea.classList.remove('fading');
+            }, 180);
+        }
+
+        function closeDocView() {
+            const overlay = document.getElementById('doc-view-overlay');
+            overlay.classList.remove('open');
+            document.body.style.overflow = '';
+        }
+
+        function handleDocOverlayClick(e) {
+            // Close if clicking the backdrop (outside the panel)
+            if (e.target === document.getElementById('doc-view-overlay')) {
+                closeDocView();
+            }
+        }
+    </script>
+</body>
+</html>

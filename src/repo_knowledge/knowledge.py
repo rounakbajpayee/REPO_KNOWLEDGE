@@ -118,8 +118,10 @@ class KnowledgeService:
             if not file_path.is_file(): continue
             if any(part in IGNORE_DIRS or part.endswith(".egg-info") for part in file_path.parts): continue
 
-            rel_path = str(file_path.relative_to(project_root))
-            if path_prefix and not rel_path.startswith(path_prefix): continue
+            rel_path = str(file_path.relative_to(project_root)).replace("\\", "/")
+            if path_prefix:
+                normalized_prefix = path_prefix.replace("\\", "/")
+                if not rel_path.startswith(normalized_prefix): continue
 
             suffix = file_path.suffix.lower()
             if extension and extension != "*":
