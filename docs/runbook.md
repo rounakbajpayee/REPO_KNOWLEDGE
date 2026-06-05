@@ -32,11 +32,35 @@ Provides connection health checks, registry counts, search play sandbox, and liv
   ```
 * **Endpoint:** `http://localhost:8000`
 
-### MCP Server
-Provides integration capabilities for coding agents (e.g., Claude Desktop).
+### MCP Server (Stdio Mode)
+Provides integration capabilities for coding agents (e.g., Claude Desktop) over standard input/output.
 * **Startup:**
   ```bash
   python -m repo_knowledge.mcp_server
+  ```
+
+### Service Control Script (Recommended)
+You can manage both the filewatcher and FastAPI/MCP servers collectively in the background using the `manage` control script (runs inside the virtual environment automatically):
+
+* **Start all background services:**
+  ```powershell
+  .\manage start
+  ```
+* **Stop all background services:**
+  ```powershell
+  .\manage stop
+  ```
+* **Restart all background services:**
+  ```powershell
+  .\manage restart
+  ```
+* **Check status (running PIDs):**
+  ```powershell
+  .\manage status
+  ```
+* **Toggle services (Stop if running, Start if stopped):**
+  ```powershell
+  .\manage
   ```
 
 ---
