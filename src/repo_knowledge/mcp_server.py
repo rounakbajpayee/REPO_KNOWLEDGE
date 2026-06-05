@@ -39,7 +39,7 @@ from repo_knowledge.config import OLLAMA_URL, QDRANT_URL, TOOL_TIMEOUT_S
 from repo_knowledge.embedder import OllamaEmbedder
 from repo_knowledge.knowledge import KnowledgeService
 from repo_knowledge.store import Store
-from repo_knowledge.tracer import new_trace_id, trace
+from repo_knowledge.tracer import new_trace_id, trace, set_trace_id, reset_trace_id
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -60,94 +60,80 @@ def _get_service() -> KnowledgeService:
 # ── Synchronous dispatch (pure, no async) ───────────────────────────────────────────
 
 def _dispatch(svc: KnowledgeService, name: str, arguments: dict, trace_id: str | None = None) -> dict:
-    """Route a tool call to the appropriate KnowledgeService method.
+    """Route a tool call to the appropriate KnowledgeService method."""
+    token = None
+    if trace_id:
+        token = set_trace_id(trace_id)
 
-    This is a plain synchronous function so it can be run in a thread executor
-    and wrapped with asyncio.wait_for() in call_tool().
+    try:
+        if name == "list_projects":
+            return svc.list_projects()
 
-    Raises RuntimeError if the underlying service raises it — the caller in
-    call_tool() catches RuntimeError and converts it to a clean error response.
-    All other exceptions propagate as-is for call_tool() to handle.
-    """
-    if name == "list_projects":
-        return svc.list_projects(trace_id=trace_id)
+        elif name == "get_project_context":
+            project = arguments.get("project", "")
+            if not project: return {"error": "project is required"}
+            return svc.get_project_context(project)
 
-    elif name == "get_project_context":
-        project = arguments.get("project", "")
-        if not project:
-            return {"error": "project is required"}
-        return svc.get_project_context(project, trace_id=trace_id)
+        elif name == "search_codebase":
+            query = arguments.get("query", "")
+            if not query: return {"error": "query is required"}
+            return svc.search(query=query, project=arguments.get("project"), top_k=int(arguments.get("top_k", 5)))
 
-    elif name == "search_codebase":
-        query = arguments.get("query", "")
-        if not query:
-            return {"error": "query is required"}
-        return svc.search(
-            query=query,
-            project=arguments.get("project"),
-            top_k=int(arguments.get("top_k", 5)),
-            trace_id=trace_id,
-        )
+        elif name == "list_files":
+            project = arguments.get("project", "")
+            if not project: return {"error": "project is required"}
+            return svc.list_files(project_name=project, path_prefix=arguments.get("path_prefix"), extension=arguments.get("extension"))
 
-    elif name == "get_file":
-        project = arguments.get("project", "")
-        path = arguments.get("path", "")
-        if not project or not path:
-            return {"error": "Both project and path are required"}
-        start_line = arguments.get("start_line")
-        end_line = arguments.get("end_line")
-        if start_line is not None:
-            start_line = int(start_line)
-        if end_line is not None:
-            end_line = int(end_line)
-        return svc.get_file(
-            project, path,
-            start_line=start_line,
-            end_line=end_line,
-            trace_id=trace_id,
-        )
+        elif name == "search_symbols":
+            query = arguments.get("query", "")
+            if not query: return {"error": "query is required"}
+            return svc.search_symbols(query=query, project=arguments.get("project"), top_k=int(arguments.get("top_k", 10)))
 
-    elif name == "reindex_project":
-        project = arguments.get("project", "")
-        if not project:
-            return {"error": "project is required"}
-        return svc.reindex_project(project, trace_id=trace_id)
+        elif name == "get_chunks_for_file":
+            project = arguments.get("project", "")
+            path = arguments.get("path", "")
+            if not project or not path: return {"error": "project and path are required"}
+            return svc.get_chunks_for_file(project, path)
 
-    elif name == "re_embed":
-        return svc.re_embed_all_projects(trace_id=trace_id)
+        elif name == "get_file":
+            project = arguments.get("project", "")
+            path = arguments.get("path", "")
+            if not project or not path: return {"error": "project and path are required"}
+            start_line = arguments.get("start_line")
+            end_line = arguments.get("end_line")
+            if start_line is not None: start_line = int(start_line)
+            if end_line is not None: end_line = int(end_line)
+            return svc.get_file(project, path, start_line=start_line, end_line=end_line)
 
-    elif name == "log_decision":
-        topic = arguments.get("topic", "")
-        entry_name = arguments.get("name", "")
-        description = arguments.get("description", "")
-        rationale = arguments.get("rationale", "")
-        options_considered = arguments.get("options_considered")
-        if not topic or not entry_name or not description or not rationale:
-            return {"error": "topic, name, description, and rationale are all required"}
-        return svc.log_decision(
-            topic=topic,
-            name=entry_name,
-            description=description,
-            rationale=rationale,
-            options_considered=options_considered,
-            trace_id=trace_id,
-        )
+        elif name == "re_embed":
+            return svc.re_embed_all_projects()
 
-    elif name == "get_decision_history":
-        topic = arguments.get("topic", "")
-        limit = arguments.get("limit", 3)
-        full_history = arguments.get("full_history", False)
-        if not topic:
-            return {"error": "topic is required"}
-        return svc.get_decision_history(
-            topic=topic,
-            limit=int(limit) if limit is not None else 3,
-            full_history=bool(full_history),
-            trace_id=trace_id,
-        )
+        elif name == "reindex_project":
+            project = arguments.get("project", "")
+            if not project: return {"error": "project is required"}
+            return svc.reindex_project(project)
 
-    else:
-        return {"error": f"Unknown tool: {name}"}
+        elif name == "log_decision":
+            topic = arguments.get("topic", "")
+            d_name = arguments.get("name", "")
+            desc = arguments.get("description", "")
+            rationale = arguments.get("rationale", "")
+            opts = arguments.get("options_considered")
+            if not all([topic, d_name, desc, rationale]): return {"error": "topic, name, description, and rationale are required"}
+            return svc.log_decision(topic, d_name, desc, rationale, opts)
+
+        elif name == "get_decision_history":
+            topic = arguments.get("topic", "")
+            limit = int(arguments.get("limit", 3))
+            full_history = bool(arguments.get("full_history", False))
+            if not topic: return {"error": "topic is required"}
+            return svc.get_decision_history(topic, limit, full_history)
+
+        else:
+            return {"error": f"Unknown tool: {name}"}
+    finally:
+        if trace_id and token is not None:
+            reset_trace_id(token)
 
 
 
@@ -210,6 +196,80 @@ async def list_tools() -> list[types.Tool]:
                     },
                 },
                 "required": ["query"],
+            },
+        ),
+        types.Tool(
+            name="list_files",
+            description=(
+                "List all files in a project. "
+                "Use path_prefix to filter by directory (e.g. 'src/'), extension to filter by type (e.g. '.py'). "
+                "Returns file paths and metadata without content. Use this before get_file to navigate a project."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "description": "Exact project name",
+                    },
+                    "path_prefix": {
+                        "type": "string",
+                        "description": "Optional: filter files by directory prefix",
+                    },
+                    "extension": {
+                        "type": "string",
+                        "description": "Optional: filter by file extension (e.g. '.py', or '*' for all)",
+                    },
+                },
+                "required": ["project"],
+            },
+        ),
+        types.Tool(
+            name="search_symbols",
+            description=(
+                "Semantic search returning symbol locations only — no content bodies. "
+                "Use this to find where a function or class is defined, then call get_file to read its implementation. "
+                "Lower token cost than search_codebase for navigation tasks."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language description of what you are looking for",
+                    },
+                    "project": {
+                        "type": "string",
+                        "description": "Optional: restrict search to a single project",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Number of results to return (default: 10)",
+                        "default": 10,
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        types.Tool(
+            name="get_chunks_for_file",
+            description=(
+                "Get the complete symbol map of an indexed file — all functions, classes, and sections with their line ranges. "
+                "Use this to understand a file's structure before deciding which part to read with get_file."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "description": "Exact project name",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "File path relative to project root",
+                    },
+                },
+                "required": ["project", "path"],
             },
         ),
         types.Tool(

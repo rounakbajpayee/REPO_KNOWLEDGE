@@ -16,12 +16,23 @@ from pydantic import BaseModel
 from repo_knowledge.knowledge import KnowledgeService
 from repo_knowledge.config import POSTGRES_PORT, POSTGRES_HOST
 from repo_knowledge.tracer import trace
+from mcp.server.sse import SseServerTransport
+from repo_knowledge.mcp_server import server as mcp_server
 
 # Setup logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("web_ui_server")
 
 app = FastAPI(title="Repository Knowledge Dashboard")
+
+sse = SseServerTransport("/messages/")
+
+@app.get("/sse")
+async def handle_sse(request: Request):
+    async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
+        await mcp_server.run(streams[0], streams[1], mcp_server.create_initialization_options())
+
+app.mount("/messages/", sse.handle_post_message)
 
 # Enable CORS for local development
 app.add_middleware(

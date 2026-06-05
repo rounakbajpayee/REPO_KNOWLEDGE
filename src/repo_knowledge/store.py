@@ -294,6 +294,38 @@ class Store:
         return sorted(projects)
 
 
+    def get_chunks_for_path(self, project: str, rel_path: str) -> list[dict]:
+        self._ensure_collection()
+        chunks: list[dict] = []
+        offset = None
+        filter = qdrant_models.Filter(
+            must=[
+                qdrant_models.FieldCondition(
+                    key="project", match=qdrant_models.MatchValue(value=project),
+                ),
+                qdrant_models.FieldCondition(
+                    key="path", match=qdrant_models.MatchValue(value=rel_path),
+                ),
+            ]
+        )
+        while True:
+            records, next_offset = self._client.scroll(
+                collection_name=self._collection,
+                scroll_filter=filter,
+                limit=250,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            for record in records:
+                if record.payload:
+                    chunks.append(record.payload)
+            if next_offset is None:
+                break
+            offset = next_offset
+        return chunks
+
+
 def _rrf_fuse(
     all_ids: set[str],
     qdrant_by_id: dict[str, dict],
@@ -327,4 +359,3 @@ def _rrf_fuse(
 
     scored.sort(key=lambda x: x[1], reverse=True)
     return scored
-

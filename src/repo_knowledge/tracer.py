@@ -123,6 +123,19 @@ def new_trace_id() -> str:
     return secrets.token_hex(4)  # 4 bytes → 8 hex chars
 
 
+import contextvars
+
+_trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("trace_id", default=None)
+
+def set_trace_id(trace_id: str | None) -> contextvars.Token:
+    return _trace_id_var.set(trace_id)
+
+def get_trace_id() -> str | None:
+    return _trace_id_var.get()
+
+def reset_trace_id(token: contextvars.Token) -> None:
+    _trace_id_var.reset(token)
+
 def trace(
     event: str,
     *,
@@ -137,6 +150,8 @@ def trace(
     duration_ms is omitted from the output entirely when None (not written as null).
     payload fields are nested under a "payload" key.
     """
+    if trace_id is None:
+        trace_id = get_trace_id()
     record: dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "trace_id": trace_id,

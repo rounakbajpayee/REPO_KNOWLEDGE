@@ -93,38 +93,87 @@ def _chunk_python(source: str, rel_path: str, project: str) -> list[Chunk]:
     return chunks
 
 
-# ── JS/TS regex chunker ───────────────────────────────────────────────────────
+# ── JS/TS AST chunker ───────────────────────────────────────────────────────
+import tree_sitter
+from tree_sitter import Language, Parser
 
-# Matches: function foo, async function foo, class Foo,
-#          const foo = () =>, const foo = async () =>, export default function
-_JS_BOUNDARY_RE = re.compile(
-    r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?"
-    r"(?:function\s+\w+|class\s+\w+|const\s+\w+\s*=\s*(?:async\s+)?(?:\(|\w+\s*=>))",
-    re.MULTILINE,
-)
+def _get_ts_parser(language: str) -> Parser | None:
+    try:
+        if language == "typescript":
+            import tree_sitter_typescript as tsts
+            lang = Language(tsts.language_typescript())
+        else:
+            import tree_sitter_javascript as tsjs
+            lang = Language(tsjs.language_javascript())
 
+        parser = Parser(lang)
+        return parser
+    except ImportError:
+        return None
+
+def _get_symbol_from_node(node) -> str:
+    for child in node.children:
+        if child.type in ('identifier', 'type_identifier', 'property_identifier'):
+            return child.text.decode('utf8')
+    if node.type == 'lexical_declaration' or node.type == 'variable_declaration':
+        for child in node.children:
+            if child.type == 'variable_declarator':
+                return _get_symbol_from_node(child)
+    return ""
 
 def _chunk_js_ts(source: str, rel_path: str, project: str, language: str) -> list[Chunk]:
-    lines = source.splitlines()
-    matches = list(_JS_BOUNDARY_RE.finditer(source))
+    parser = _get_ts_parser(language)
+    if not parser:
+        return _chunk_fixed(source, rel_path, project, language=language)
 
-    if not matches:
+    try:
+        tree = parser.parse(source.encode("utf8"))
+    except Exception:
         return _chunk_fixed(source, rel_path, project, language=language)
 
     chunks: list[Chunk] = []
-    for i, match in enumerate(matches):
-        start_char = match.start()
-        end_char = matches[i + 1].start() if i + 1 < len(matches) else len(source)
 
-        block = source[start_char:end_char].strip()
-        start_line = source[:start_char].count("\n") + 1
-        end_line = start_line + block.count("\n")
+    target_types = {
+        'class_declaration', 'function_declaration', 'method_definition', 'interface_declaration'
+    }
+    arrow_fn_declarations = {'lexical_declaration', 'variable_declaration'}
 
-        # Best-effort symbol extraction from the match text
-        symbol_match = re.search(r"(?:function|class|const)\s+(\w+)", match.group())
-        symbol = symbol_match.group(1) if symbol_match else ""
+    def extract_nodes(node):
+        result = []
+        if node.type in target_types:
+            result.append(node)
+        elif node.type in arrow_fn_declarations:
+            for child in node.children:
+                if child.type == 'variable_declarator':
+                    for gc in child.children:
+                        if gc.type == 'arrow_function':
+                            result.append(node)
+                            break
+        for child in node.children:
+            result.extend(extract_nodes(child))
+        return result
 
-        chunk_type = "class" if "class" in match.group() else "function"
+    target_nodes = extract_nodes(tree.root_node)
+    if not target_nodes:
+        return _chunk_fixed(source, rel_path, project, language=language)
+
+    source_lines = source.splitlines()
+
+    for node in target_nodes:
+        start_line_idx = node.start_point[0]
+        end_line_idx = node.end_point[0]
+        if end_line_idx >= len(source_lines):
+            end_line_idx = len(source_lines) - 1
+
+        body_lines = source_lines[start_line_idx:end_line_idx + 1]
+        content = "\n".join(body_lines)
+        symbol = _get_symbol_from_node(node)
+
+        chunk_type = "function"
+        if node.type in ('class_declaration', 'interface_declaration'):
+            chunk_type = "class"
+        elif node.type == 'method_definition':
+            chunk_type = "function"
 
         chunks.append(Chunk(
             project=project,
@@ -132,13 +181,12 @@ def _chunk_js_ts(source: str, rel_path: str, project: str, language: str) -> lis
             language=language,
             chunk_type=chunk_type,
             symbol=symbol,
-            content=block,
-            start_line=start_line,
-            end_line=end_line,
+            content=content,
+            start_line=start_line_idx + 1,
+            end_line=end_line_idx + 1,
         ))
 
     return chunks
-
 
 # ── Markdown header chunker ───────────────────────────────────────────────────
 
@@ -227,6 +275,104 @@ _LANG_MAP: dict[str, str] = {
 }
 
 
+# ── Infrastructure file chunkers ──────────────────────────────────────────────
+
+_DOCKER_COMPOSE_RE = re.compile(r"^\s{2}([a-zA-Z0-9_-]+):", re.MULTILINE)
+_CONF_SECTION_RE = re.compile(r"^\[(.*?)\]", re.MULTILINE)
+
+def _chunk_docker_compose(source: str, rel_path: str, project: str) -> list[Chunk]:
+    matches = list(_DOCKER_COMPOSE_RE.finditer(source))
+    if not matches:
+        return _chunk_fixed(source, rel_path, project, language="yaml")
+
+    chunks: list[Chunk] = []
+    for i, match in enumerate(matches):
+        start_char = match.start()
+        end_char = matches[i + 1].start() if i + 1 < len(matches) else len(source)
+        block = source[start_char:end_char].rstrip()
+
+        start_line = source[:start_char].count("\n") + 1
+        end_line = start_line + block.count("\n")
+
+        symbol = f"service: {match.group(1)}"
+
+        chunks.append(Chunk(
+            project=project,
+            path=rel_path,
+            language="yaml",
+            chunk_type="section",
+            symbol=symbol,
+            content=block,
+            start_line=start_line,
+            end_line=end_line,
+        ))
+
+    return chunks
+
+def _chunk_plist(source: str, file_path: Path, rel_path: str, project: str) -> list[Chunk]:
+    import plistlib
+    import json
+    try:
+        with open(file_path, "rb") as f:
+            pl = plistlib.load(f)
+    except Exception:
+        return _chunk_fixed(source, rel_path, project, language="xml")
+
+    if not isinstance(pl, dict):
+        return _chunk_fixed(source, rel_path, project, language="xml")
+
+    chunks: list[Chunk] = []
+    for key, value in pl.items():
+        try:
+            content = json.dumps({key: value}, indent=2)
+        except TypeError:
+            content = str({key: value})
+
+        chunks.append(Chunk(
+            project=project,
+            path=rel_path,
+            language="xml",
+            chunk_type="section",
+            symbol=f"key: {key}",
+            content=content,
+            start_line=1,
+            end_line=content.count("\n") + 1,
+        ))
+
+    if not chunks:
+        return _chunk_fixed(source, rel_path, project, language="xml")
+    return chunks
+
+def _chunk_conf(source: str, rel_path: str, project: str) -> list[Chunk]:
+    matches = list(_CONF_SECTION_RE.finditer(source))
+    if not matches:
+        return _chunk_fixed(source, rel_path, project, language="ini")
+
+    chunks: list[Chunk] = []
+    for i, match in enumerate(matches):
+        start_char = match.start()
+        end_char = matches[i + 1].start() if i + 1 < len(matches) else len(source)
+        block = source[start_char:end_char].rstrip()
+
+        start_line = source[:start_char].count("\n") + 1
+        end_line = start_line + block.count("\n")
+
+        symbol = f"section: {match.group(1)}"
+
+        chunks.append(Chunk(
+            project=project,
+            path=rel_path,
+            language="ini",
+            chunk_type="section",
+            symbol=symbol,
+            content=block,
+            start_line=start_line,
+            end_line=end_line,
+        ))
+
+    return chunks
+
+
 def chunk_file(
     file_path: Path,
     project_root: Path,
@@ -245,7 +391,11 @@ def chunk_file(
     suffix = file_path.suffix.lower()
     if suffix in IGNORE_EXTENSIONS:
         return []
-    if suffix not in SUPPORTED_EXTENSIONS:
+
+    filename = file_path.name.lower()
+    is_docker_compose = filename in ("docker-compose.yml", "docker-compose.yaml")
+
+    if suffix not in SUPPORTED_EXTENSIONS and not is_docker_compose and suffix not in (".plist", ".conf", ".ini"):
         return []
 
     try:
@@ -267,6 +417,8 @@ def chunk_file(
 
     rel_path = str(file_path.relative_to(project_root))
     language = _LANG_MAP.get(suffix, "text")
+    if is_docker_compose:
+        language = "yaml"
 
     if suffix == ".py":
         chunks = _chunk_python(source, rel_path, project_name)
@@ -274,6 +426,12 @@ def chunk_file(
         chunks = _chunk_js_ts(source, rel_path, project_name, language)
     elif suffix == ".md":
         chunks = _chunk_markdown(source, rel_path, project_name)
+    elif is_docker_compose:
+        chunks = _chunk_docker_compose(source, rel_path, project_name)
+    elif suffix == ".plist":
+        chunks = _chunk_plist(source, file_path, rel_path, project_name)
+    elif suffix in {".conf", ".ini"}:
+        chunks = _chunk_conf(source, rel_path, project_name)
     else:
         chunks = _chunk_fixed(source, rel_path, project_name, language)
 
