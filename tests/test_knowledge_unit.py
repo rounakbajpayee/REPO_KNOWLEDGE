@@ -354,7 +354,7 @@ def test_search_symbols_calls_embedder(svc, mock_store, mock_embedder):
 def test_search_symbols_project_filter_passed(svc, mock_store, mock_embedder):
     mock_store.search.return_value = []
     svc.search_symbols("query", project="ALPHA")
-    mock_store.search.assert_called_once_with(mock_embedder.embed.return_value, top_k=10, project="ALPHA")
+    mock_store.search.assert_called_once_with(mock_embedder.embed.return_value, top_k=10, project="ALPHA", query_text="query")
 
 def test_get_chunks_for_file_returns_symbol_map(svc, mock_store, tmp_path):
     proj_dir = tmp_path / "LENS"

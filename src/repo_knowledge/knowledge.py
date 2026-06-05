@@ -104,7 +104,7 @@ class KnowledgeService:
             duration_ms = round((time.monotonic() - t0) * 1000)
             trace("search", query=query, project=project, top_k=top_k,
                   results=len(cached), duration_ms=duration_ms, cache_hit=True,
-                  search_quality="cached", subsystem="knowledge", trace_id=trace_id)
+                  search_quality="cached", subsystem="knowledge")
             for r in cached:
                 r["search_quality"] = "cached"
             return cached
@@ -548,7 +548,7 @@ entries_count: 1
 
             trace("get_decision_history", topic=slugified_topic, limit=limit, full_history=full_history,
                   total_entries=total_count, shown_entries=len(ret_entries),
-                  subsystem="knowledge", source="postgres", trace_id=trace_id)
+                  subsystem="knowledge", source="postgres")
 
             return {
                 "topic": slugified_topic,
@@ -561,7 +561,7 @@ entries_count: 1
         except Exception as e:
             trace("warning", event_source="get_decision_history_db",
                   message=f"Failed to query decision history from Postgres: {e}. Falling back to Markdown.",
-                  severity="WARNING", subsystem="knowledge", trace_id=trace_id)
+                  severity="WARNING", subsystem="knowledge")
 
         # Fallback to Markdown
         vault_dir = Path(self._projects_root) / "knowledge_vault"
