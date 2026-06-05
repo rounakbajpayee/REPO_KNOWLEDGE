@@ -15,6 +15,14 @@ load_dotenv()
 QDRANT_URL: str = os.getenv("QDRANT_URL", "http://100.70.3.86:6333")
 QDRANT_COLLECTION: str = os.getenv("QDRANT_COLLECTION", "code_chunks_nomic")
 
+# ── PostgreSQL ─────────────────────────────────────────────────────────
+POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "192.168.0.234")
+POSTGRES_PORT: int = int(os.getenv("POSTGRES_PORT", "5434"))
+POSTGRES_USER: str = os.getenv("POSTGRES_USER", "oracle")
+POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "3YZmch87tlXn4DmEmIIauuu6K")
+POSTGRES_DB: str = os.getenv("POSTGRES_DB", "repo_knowledge")
+
+
 # ── Ollama ───────────────────────────────────────────────────────────────
 OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://100.70.3.86:11434")
 EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
@@ -37,6 +45,22 @@ SEARCH_TOP_K: int = int(os.getenv("SEARCH_TOP_K", "5"))
 # Range [0.0, 1.0] for cosine similarity. Results below this are filtered out.
 # 0.40 removes clearly unrelated noise; 0.65 is "good quality".
 SEARCH_SCORE_THRESHOLD: float = float(os.getenv("SEARCH_SCORE_THRESHOLD", "0.40"))
+
+# ── Reranking ────────────────────────────────────────────────────────────────
+# Set RERANK_ENABLED=false to skip the cross-encoder (useful in low-memory envs).
+RERANK_ENABLED: bool = os.getenv("RERANK_ENABLED", "true").lower() not in {"false", "0", "no"}
+
+# How many candidates to fetch from Qdrant+BM25 before passing to the reranker.
+# Higher = better recall but slower cross-encoder. 40 is the production sweet-spot.
+RERANK_FETCH_K: int = int(os.getenv("RERANK_FETCH_K", "40"))
+
+# Cross-encoder model. ms-marco-MiniLM-L-6-v2 is ~80MB, CPU-friendly, fast.
+RERANK_MODEL: str = os.getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+# ── Redis cache ──────────────────────────────────────────────────────────────
+# Redis is OPTIONAL — all search paths degrade gracefully when unavailable.
+REDIS_URL: str = os.getenv("REDIS_URL", "redis://192.168.0.234:6379/0")
+REDIS_TTL_S: int = int(os.getenv("REDIS_TTL_S", "300"))  # 5-minute TTL
 
 # ── MCP Server ───────────────────────────────────────────────────────────────
 # Maximum seconds a single tool call may run before the server returns a clean

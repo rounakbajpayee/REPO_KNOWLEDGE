@@ -1,7 +1,15 @@
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from repo_knowledge.knowledge import KnowledgeService
+
+
+@pytest.fixture(autouse=True)
+def mock_reranker_model():
+    """Mock reranker model loading to degrade gracefully in unit tests."""
+    with patch("repo_knowledge.reranker._load_model", return_value=None):
+        yield
+
 
 
 @pytest.fixture
@@ -97,7 +105,7 @@ def test_search_calls_embedder(svc, mock_embedder):
 def test_search_calls_store_with_vector(svc, mock_store, mock_embedder):
     svc.search("authentication flow", top_k=3)
     mock_store.search.assert_called_once_with(
-        mock_embedder.embed.return_value, top_k=3, project=None,
+        mock_embedder.embed.return_value, top_k=3, project=None, query_text="authentication flow"
     )
 
 

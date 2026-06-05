@@ -105,6 +105,9 @@ def _dispatch(svc: KnowledgeService, name: str, arguments: dict, trace_id: str |
             if end_line is not None: end_line = int(end_line)
             return svc.get_file(project, path, start_line=start_line, end_line=end_line)
 
+        elif name == "re_embed":
+            return svc.re_embed_all_projects()
+
         elif name == "reindex_project":
             project = arguments.get("project", "")
             if not project: return {"error": "project is required"}
@@ -317,6 +320,15 @@ async def list_tools() -> list[types.Tool]:
                 },
                 "required": ["project"],
             },
+        ),
+        types.Tool(
+            name="re_embed",
+            description=(
+                "Wipe Qdrant vector database collection and re-embed all code chunks from the PostgreSQL store. "
+                "Call this after updating the embedding model in configuration to rebuild the vector cache "
+                "without rescanning or re-parsing the original project files on disk."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
         ),
         types.Tool(
             name="log_decision",
