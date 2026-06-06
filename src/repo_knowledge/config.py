@@ -88,6 +88,7 @@ IGNORE_DIRS: set[str] = {
     ".mypy_cache",
     "egg-info",
     ".egg-info",
+    "logs",
 }
 
 # File extensions that must never be indexed (noise / lock files / logs)

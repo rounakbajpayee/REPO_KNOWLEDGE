@@ -42,7 +42,12 @@ def _load_model() -> Any | None:
             return None
         try:
             from sentence_transformers import CrossEncoder  # type: ignore[import]
-            _model = CrossEncoder(RERANK_MODEL)
+            try:
+                # Try loading from local cache first to avoid network checks/latency
+                _model = CrossEncoder(RERANK_MODEL, local_files_only=True)
+            except Exception:
+                # Fallback to downloading/checking online if not cached locally
+                _model = CrossEncoder(RERANK_MODEL, local_files_only=False)
         except Exception:
             _model_failed = True
             return None
