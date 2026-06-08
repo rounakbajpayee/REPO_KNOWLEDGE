@@ -36,10 +36,11 @@ def _load_model() -> Any | None:
         return None
 
     with _model_lock:
-        if _model is not None:         # Re-check inside lock (double-checked locking)
+        if _model is not None:
             return _model
         if _model_failed:
             return None
+            
         try:
             from sentence_transformers import CrossEncoder  # type: ignore[import]
             try:
@@ -89,7 +90,8 @@ def rerank(
         return candidates[:top_k]
 
     pairs = [(query, c.get("content", "")) for c in candidates]
-    scores: list[float] = model.predict(pairs).tolist()
+    with _model_lock:
+        scores: list[float] = model.predict(pairs, show_progress_bar=False).tolist()
 
     # Attach rerank scores and sort descending
     scored = sorted(

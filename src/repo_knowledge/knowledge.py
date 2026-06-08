@@ -82,10 +82,8 @@ class KnowledgeService:
         readme_excerpt = _read_readme(project.path)
         tree = _build_tree(project.path, max_depth=2)
         # Exclude ignored dirs from file count (matches what gets indexed)
-        file_count = sum(
-            1 for p in project.path.rglob("*")
-            if p.is_file() and not any(part in IGNORE_DIRS for part in p.parts)
-        )
+        from repo_knowledge.scanner import list_project_files
+        file_count = len(list_project_files(project.path))
         indexed = project_name in set(self._store.list_projects())
         trace("get_project_context", project=project_name, file_count=file_count,
               indexed=indexed, subsystem="knowledge")
@@ -150,11 +148,24 @@ class KnowledgeService:
         if not project_root.exists() or not project_root.is_dir():
             return {"error": f"Project '{project_name}' not found."}
 
-        files_data = []
-        for file_path in project_root.rglob("*"):
-            if not file_path.is_file(): continue
-            if any(part in IGNORE_DIRS or part.endswith(".egg-info") for part in file_path.parts): continue
+        # Query database to get precomputed max end_line from chunks table
+        db_line_counts = {}
+        try:
+            with self._pg._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT path, MAX(end_line)
+                        FROM chunks
+                        WHERE project = %s
+                        GROUP BY path;
+                    """, (project_name,))
+                    db_line_counts = {row[0].replace("\\", "/"): row[1] for row in cur.fetchall()}
+        except Exception:
+            pass
 
+        from repo_knowledge.scanner import list_project_files
+        files_data = []
+        for file_path in list_project_files(project_root):
             rel_path = str(file_path.relative_to(project_root)).replace("\\", "/")
             if path_prefix:
                 normalized_prefix = path_prefix.replace("\\", "/")
@@ -166,11 +177,17 @@ class KnowledgeService:
             elif suffix in IGNORE_EXTENSIONS or (suffix not in SUPPORTED_EXTENSIONS and suffix not in (".plist", ".conf", ".ini") and file_path.name.lower() not in ("docker-compose.yml", "docker-compose.yaml")):
                 continue
 
-            try:
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                    line_count = sum(1 for _ in f)
-            except Exception:
-                continue
+            line_count = db_line_counts.get(rel_path)
+            if line_count is None:
+                try:
+                    size = file_path.stat().st_size
+                    if size < 50000:
+                        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                            line_count = sum(1 for _ in f)
+                    else:
+                        line_count = 0
+                except Exception:
+                    line_count = 0
 
             language = "text"
             if suffix == ".py": language = "python"
@@ -201,6 +218,10 @@ class KnowledgeService:
             project_root = Path(self._projects_root) / project_name
             if not project_root.exists() or not project_root.is_dir():
                 return {"error": f"Project '{project_name}' not found."}
+            file_path = project_root / path
+            if not file_path.exists() or not file_path.is_file():
+                return {"error": f"File not found: {path} in project {project_name}"}
+            return {"error": f"No chunks found for {path}", "chunks": [], "total": 0}
 
         simplified_chunks = []
         for c in chunks:
@@ -242,6 +263,11 @@ class KnowledgeService:
         
         lines = content.splitlines(keepends=True)
         total_lines = len(lines)
+        
+        if start_line and end_line and start_line > end_line:
+            return {"error": "start_line must be <= end_line"}
+        if start_line and start_line > total_lines:
+            return {"error": f"start_line {start_line} exceeds file length {total_lines}"}
         
         sliced_content = content
         if start_line is not None or end_line is not None:
@@ -285,30 +311,43 @@ class KnowledgeService:
             # Incremental reindex: skip unchanged files, re-embed changed/new, delete removed
             trace("reindex_start", project=project_name, mode="incremental", subsystem="knowledge")
             indexed_hashes = self._store.get_indexed_file_hashes(project_name)
+            
+            # Fetch indexed modification times from database
+            indexed_mtimes = {}
+            try:
+                indexed_mtimes = self._store.get_indexed_file_mtimes(project_name)
+            except Exception:
+                pass
 
             # Walk project files, compute current hashes
+            from repo_knowledge.scanner import list_project_files
             current_files: dict[str, str] = {}  # rel_path → content_hash
             changed_chunks: list = []
-            for file_path in project.path.rglob("*"):
-                if not file_path.is_file():
+            for file_path in list_project_files(project.path):
+                rel_path = str(file_path.relative_to(project.path))
+                
+                # Fetch modification time first
+                file_mtime = 0.0
+                try:
+                    file_mtime = file_path.stat().st_mtime
+                except OSError:
+                    pass
+
+                # If path exists in DB and mtime matches, skip reading and hashing
+                old_mtime = indexed_mtimes.get(rel_path, None)
+                old_hash = indexed_hashes.get(rel_path, None)
+                if old_mtime is not None and old_hash is not None and abs(old_mtime - file_mtime) < 0.01:
+                    current_files[rel_path] = old_hash
                     continue
-                if any(part in IGNORE_DIRS or part.endswith(".egg-info")
-                       for part in file_path.parts):
-                    continue
+
                 try:
                     source = file_path.read_text(encoding="utf-8", errors="ignore")
                 except OSError:
                     continue
-                rel_path = str(file_path.relative_to(project.path))
                 content_hash = hashlib.sha256(source.encode()).hexdigest()
                 current_files[rel_path] = content_hash
-                old_hash = indexed_hashes.get(rel_path, None)
+                
                 if old_hash != content_hash:  # new or changed (old_hash "" also triggers)
-                    file_mtime = 0.0
-                    try:
-                        file_mtime = file_path.stat().st_mtime
-                    except OSError:
-                        pass
                     new_chunks = chunk_file(
                         file_path, project.path, project_name,
                         content_hash=content_hash, file_mtime=file_mtime,

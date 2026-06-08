@@ -308,3 +308,101 @@ def test_different_files_have_different_hashes(tmp_path):
     chunks_b = chunk_file(f2, tmp_path, "PROJ")
     assert chunks_a and chunks_b
     assert chunks_a[0].content_hash != chunks_b[0].content_hash
+
+
+def test_js_chunking(tmp_path):
+    """Verify that JavaScript files can be chunked without AttributeErrors."""
+    js_content = """
+    class Worker {
+        constructor() {}
+        doWork() {
+            console.log("working");
+        }
+    }
+    function helper() {
+        return 42;
+    }
+    """
+    f = _write(tmp_path, "worker.js", js_content)
+    chunks = chunk_file(f, tmp_path, "PROJ")
+    assert len(chunks) >= 1
+    assert any(c.language == "javascript" for c in chunks)
+
+
+def test_ts_chunking(tmp_path):
+    """Verify that TypeScript files can be chunked without AttributeErrors."""
+    ts_content = """
+    interface User {
+        name: string;
+    }
+    class UserImpl implements User {
+        name: string;
+        constructor(name: string) {
+            this.name = name;
+        }
+    }
+    """
+    f = _write(tmp_path, "user.ts", ts_content)
+    chunks = chunk_file(f, tmp_path, "PROJ")
+    assert len(chunks) >= 1
+    assert any(c.language == "typescript" for c in chunks)
+
+
+def test_minified_files_ignored_git(tmp_path):
+    """Verify that minified files ignored in git are skipped by chunk_project."""
+    import subprocess
+    project_dir = tmp_path / "git_project"
+    project_dir.mkdir()
+    
+    # Init git
+    subprocess.run(["git", "init"], cwd=project_dir, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=project_dir, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=project_dir, capture_output=True, check=True)
+    
+    # Add files
+    f1 = project_dir / "main.py"
+    f1.write_text("def hello(): pass")
+    f2 = project_dir / "bootstrap.min.js"
+    f2.write_text("console.log('bootstrap');")
+    
+    subprocess.run(["git", "add", "main.py"], cwd=project_dir, capture_output=True, check=True)
+    
+    # Ignore minified files
+    (project_dir / ".gitignore").write_text("*.min.js\n")
+    subprocess.run(["git", "add", ".gitignore"], cwd=project_dir, capture_output=True, check=True)
+    
+    # Chunk project
+    chunks = chunk_project(project_dir, "PROJ")
+    paths = {c.path.replace("\\", "/") for c in chunks}
+    
+    assert "main.py" in paths
+    assert "bootstrap.min.js" not in paths
+
+
+def test_oversized_and_minified_files_skipped(tmp_path):
+    # 1. Test code file with long line (>1000 chars) is skipped
+    js_long = tmp_path / "long.js"
+    js_long.write_text("console.log('" + "a" * 1001 + "');", encoding="utf-8")
+    assert chunk_file(js_long, tmp_path, "PROJ") == []
+
+    # 2. Test code file with normal line (<1000 chars) is NOT skipped
+    js_normal = tmp_path / "normal.js"
+    js_normal.write_text("console.log('" + "a" * 500 + "');", encoding="utf-8")
+    assert len(chunk_file(js_normal, tmp_path, "PROJ")) > 0
+
+    # 3. Test markdown file with moderately long line (>1000, <10000 chars) is NOT skipped
+    md_normal = tmp_path / "doc.md"
+    md_normal.write_text("# Doc\n" + "a" * 1500, encoding="utf-8")
+    assert len(chunk_file(md_normal, tmp_path, "PROJ")) > 0
+
+    # 4. Test markdown file with extremely long line (>10000 chars) is skipped
+    md_long = tmp_path / "long.md"
+    md_long.write_text("# Doc\n" + "a" * 10001, encoding="utf-8")
+    assert chunk_file(md_long, tmp_path, "PROJ") == []
+
+    # 5. Test file exceeding 500 KB size limit is skipped
+    py_huge = tmp_path / "huge.py"
+    content = "print('hello')\n" * 35000  # 35k * 15 chars ~ 525 KB
+    py_huge.write_text(content, encoding="utf-8")
+    assert chunk_file(py_huge, tmp_path, "PROJ") == []
+

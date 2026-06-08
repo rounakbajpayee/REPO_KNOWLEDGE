@@ -36,6 +36,7 @@ def mock_store() -> MagicMock:
     ]
     # Simulate no previously indexed files (all files treated as new)
     store.get_indexed_file_hashes.return_value = {}
+    store.get_indexed_file_mtimes.return_value = {}
     return store
 
 
@@ -189,17 +190,20 @@ def test_reindex_embedder_failure_returns_error(svc, mock_embedder, mock_store):
 
 
 def test_reindex_incremental_no_changes_returns_zero(svc, mock_store, fake_projects_root):
-    """If all indexed hashes match current files, chunks_indexed must be 0."""
-    # Pre-populate hashes matching the actual file content in fake_projects_root
+    """If all indexed hashes and mtimes match current files, chunks_indexed must be 0."""
+    # Pre-populate hashes and mtimes matching the actual file content in fake_projects_root
     alpha_path = fake_projects_root / "ALPHA"
     import hashlib
     hashes = {}
+    mtimes = {}
     for fp in alpha_path.rglob("*"):
         if fp.is_file():
             rel = str(fp.relative_to(alpha_path))
             source = fp.read_text(encoding="utf-8", errors="ignore")
             hashes[rel] = hashlib.sha256(source.encode()).hexdigest()
+            mtimes[rel] = fp.stat().st_mtime
     mock_store.get_indexed_file_hashes.return_value = hashes
+    mock_store.get_indexed_file_mtimes.return_value = mtimes
     result = svc.reindex_project("ALPHA")
     assert result["chunks_indexed"] == 0
     assert "No changes" in result.get("message", "")

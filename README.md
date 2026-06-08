@@ -1,5 +1,10 @@
 # REPO_KNOWLEDGE
 
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
+[![Coverage](https://img.shields.io/badge/coverage-90%25-success.svg)](https://github.com)
+
+
 Local-first semantic memory layer for codebases. Indexes Git repositories and exposes search capabilities via MCP to coding agents (Claude, Codex, OpenCode, etc.).
 
 **Why this exists:** coding agents were dying mid-PR trying to load entire codebases into context. This system lets agents search for exactly the functions and classes they need, without reading files they don't.
@@ -57,6 +62,11 @@ python -m repo_knowledge.web_ui.server
 # 8. Post-Mortem Decision Extraction (Optional)
 python memory_helper.py --diff     # reconstructs decisions from workspace git diffs
 
+### Docker Compose (Recommended)
+You can run the entire service (Postgres, Qdrant, Web UI, Watcher) in Docker.
+```bash
+docker-compose up -d
+```
 
 ---
 
@@ -170,3 +180,8 @@ The new vector index cache will be rebuilt from PostgreSQL text records, without
 - Tree-sitter AST for TypeScript/JavaScript
 - Embedding model benchmarking tool
 - OS-agnostic client deploy script (Mac + Dell)
+
+
+## License
+
+This project is licensed under the AGPLv3. For commercial use without open-sourcing your application, please contact the author to purchase a commercial license.

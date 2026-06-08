@@ -90,13 +90,30 @@ class Store:
             # Heuristic to find dominant programming stack
             stack = "Python"
             langs = [c.language for c in chunks if c.language]
-            if langs:
-                stack = max(set(langs), key=langs.count)
-                # Normalize language names to human-readable stack names
-                if stack.lower() in {"python"}:
-                    stack = "Python"
-                elif stack.lower() in {"javascript", "typescript"}:
-                    stack = "Node.js"
+            # Ignore markdown and text if there are other languages present
+            filtered_langs = [l for l in langs if l.lower() not in {"markdown", "text"}]
+            if filtered_langs:
+                stack_lang = max(set(filtered_langs), key=filtered_langs.count)
+            elif langs:
+                stack_lang = max(set(langs), key=langs.count)
+            else:
+                stack_lang = "python"
+
+            # Normalize language names to human-readable stack names
+            if stack_lang.lower() in {"python"}:
+                stack = "Python"
+            elif stack_lang.lower() in {"javascript", "typescript"}:
+                stack = "Node.js"
+            elif stack_lang.lower() in {"go"}:
+                stack = "Go"
+            elif stack_lang.lower() in {"rust"}:
+                stack = "Rust"
+            elif stack_lang.lower() in {"yaml", "yml"}:
+                stack = "YAML"
+            elif stack_lang.lower() in {"json"}:
+                stack = "JSON"
+            else:
+                stack = stack_lang.title()
 
             project_id = self._pg.upsert_project(chunks[0].project, stack)
 
@@ -158,6 +175,13 @@ class Store:
         Loads directly from PostgreSQL.
         """
         return self._pg.get_indexed_file_hashes(project)
+
+    def get_indexed_file_mtimes(self, project: str) -> dict[str, float]:
+        """
+        Return {rel_path: file_mtime} for every file already indexed under project.
+        Loads directly from PostgreSQL.
+        """
+        return self._pg.get_indexed_file_mtimes(project)
 
 
     def search(

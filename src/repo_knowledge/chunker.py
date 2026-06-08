@@ -101,14 +101,20 @@ def _get_ts_parser(language: str) -> Parser | None:
     try:
         if language == "typescript":
             import tree_sitter_typescript as tsts
-            lang = Language(tsts.language_typescript())
+            if hasattr(tsts, "language_typescript"):
+                lang = Language(tsts.language_typescript())
+            else:
+                lang = Language(tsts.language())
         else:
             import tree_sitter_javascript as tsjs
-            lang = Language(tsjs.language_javascript())
+            if hasattr(tsjs, "language_javascript"):
+                lang = Language(tsjs.language_javascript())
+            else:
+                lang = Language(tsjs.language())
 
         parser = Parser(lang)
         return parser
-    except ImportError:
+    except (ImportError, AttributeError):
         return None
 
 def _get_symbol_from_node(node) -> str:
@@ -406,6 +412,20 @@ def chunk_file(
     if not source.strip():
         return []
 
+    # Skip files larger than 500 KB.
+    try:
+        size = file_path.stat().st_size
+    except OSError:
+        size = 0
+    if size > 500000:
+        return []
+
+    # Skip files with extremely long lines (classic signature of minified code/data blobs).
+    # Programming code files have strict formatting, whereas docs/data files might have longer lines.
+    max_line_len = 1000 if suffix in {".py", ".js", ".jsx", ".ts", ".tsx"} else 10000
+    if any(len(line) > max_line_len for line in source.splitlines()):
+        return []
+
     # Compute hash + mtime if the caller didn't supply them
     if not content_hash:
         content_hash = hashlib.sha256(source.encode()).hexdigest()
@@ -446,19 +466,12 @@ def chunk_file(
 def chunk_project(project_root: Path, project_name: str) -> list[Chunk]:
     """
     Walk an entire project directory and return all chunks.
-    Skips IGNORE_DIRS automatically.
+    Uses Git-aware file listing if available.
     """
+    from repo_knowledge.scanner import list_project_files
     all_chunks: list[Chunk] = []
 
-    for file_path in project_root.rglob("*"):
-        if not file_path.is_file():
-            continue
-        # Skip ignored directories anywhere in the path
-        if any(
-            part in IGNORE_DIRS or part.endswith(".egg-info")
-            for part in file_path.parts
-        ):
-            continue
+    for file_path in list_project_files(project_root):
         all_chunks.extend(chunk_file(file_path, project_root, project_name))
 
     return all_chunks

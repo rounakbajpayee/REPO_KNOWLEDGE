@@ -55,6 +55,26 @@ Implements the second-stage Cross-Encoder reranking using a thread-safe singleto
 ### cache.py
 Manages Redis-backed cached search result sets keyed by query, project filter, and top-K. Serializes output to JSON with a configurable TTL. Gracefully bypasses cache operations if the Redis host is offline.
 
+## High-Level Pipeline
+
+```mermaid
+flowchart TD
+    Disk[(Local Disk / Projects)] -->|Reads| Scanner[Directory Scanner]
+    Scanner -->|File Content| Chunker[Chunker (AST / Regex)]
+    Chunker -->|Text Chunks| Postgres[(Postgres Store)]
+    Postgres -->|Text| Embedder[Ollama Embedder]
+    Embedder -->|Vectors| Qdrant[(Qdrant Vector DB)]
+    
+    Qdrant <--> MCP[MCP Server]
+    Postgres <--> MCP
+    MCP <--> Claude[Coding Agents]
+```
+
+1. **Scanner**: recursively reads supported files (`.py`, `.ts`, `.md`, etc.) from git repositories, honoring `.gitignore`.
+2. **Chunker**: splits files into smaller `KnowledgeUnit` blocks.
+   - For Python: uses AST to extract functions and classes intact.
+   - For Text/Markdown: uses recursive character splitting. for markdown, fixed-line split for others.
+
 ### scanner.py
 Discovers Git repositories one level deep under `PROJECTS_ROOT`. A directory is a project if it has a `.git` folder. Also does heuristic stack detection.
 

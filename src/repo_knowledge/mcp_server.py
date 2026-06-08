@@ -48,12 +48,16 @@ log = logging.getLogger(__name__)
 
 server = Server("repo-knowledge")
 _svc: KnowledgeService | None = None
+_svc_lock = __import__('threading').Lock()
 
 
 def _get_service() -> KnowledgeService:
     global _svc
-    if _svc is None:
-        _svc = KnowledgeService()
+    if _svc is not None:
+        return _svc
+    with _svc_lock:
+        if _svc is None:
+            _svc = KnowledgeService()
     return _svc
 
 
@@ -77,7 +81,10 @@ def _dispatch(svc: KnowledgeService, name: str, arguments: dict, trace_id: str |
         elif name == "search_codebase":
             query = arguments.get("query", "")
             if not query: return {"error": "query is required"}
-            return svc.search(query=query, project=arguments.get("project"), top_k=int(arguments.get("top_k", 5)))
+            top_k = int(arguments.get("top_k", 5))
+            if top_k < 1 or top_k > 1000:
+                return {"error": f"top_k must be 1-1000, got {top_k}"}
+            return svc.search(query=query, project=arguments.get("project"), top_k=top_k)
 
         elif name == "list_files":
             project = arguments.get("project", "")
@@ -87,7 +94,10 @@ def _dispatch(svc: KnowledgeService, name: str, arguments: dict, trace_id: str |
         elif name == "search_symbols":
             query = arguments.get("query", "")
             if not query: return {"error": "query is required"}
-            return svc.search_symbols(query=query, project=arguments.get("project"), top_k=int(arguments.get("top_k", 10)))
+            top_k = int(arguments.get("top_k", 10))
+            if top_k < 1 or top_k > 1000:
+                return {"error": f"top_k must be 1-1000, got {top_k}"}
+            return svc.search_symbols(query=query, project=arguments.get("project"), top_k=top_k)
 
         elif name == "get_chunks_for_file":
             project = arguments.get("project", "")
@@ -470,6 +480,21 @@ async def main() -> None:
         log.warning("Ollama unreachable at %s — search and reindex will fail until resolved", OLLAMA_URL)
     else:
         log.info("Ollama OK")
+
+    # 2. Worker thread deadlocks from importing PyTorch/OpenMP in ANY non-main thread on Windows.
+    # We use an asyncio task with a sleep to let the initialize handshake finish,
+    # then intentionally block the main thread to safely load PyTorch.
+    async def delayed_preload():
+        await asyncio.sleep(2)
+        log.info("Starting delayed main-thread pre-load of reranker model...")
+        try:
+            from repo_knowledge.reranker import is_available
+            is_available()  # Blocks the event loop, but PyTorch initializes safely!
+            log.info("Delayed pre-load complete. Searches will now be fast.")
+        except Exception as e:
+            log.error("Pre-load failed: %s", e)
+
+    asyncio.create_task(delayed_preload())
 
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(

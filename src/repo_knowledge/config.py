@@ -6,25 +6,28 @@ Copy .env.example to .env and adjust before running.
 """
 
 import os
+os.environ["TQDM_DISABLE"] = "1"
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
 # ── Qdrant ──────────────────────────────────────────────────────────────
-QDRANT_URL: str = os.getenv("QDRANT_URL", "http://100.70.3.86:6333")
+QDRANT_URL: str = os.getenv("QDRANT_URL", "http://192.168.0.234:6333")
 QDRANT_COLLECTION: str = os.getenv("QDRANT_COLLECTION", "code_chunks_nomic")
 
 # ── PostgreSQL ─────────────────────────────────────────────────────────
 POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "192.168.0.234")
 POSTGRES_PORT: int = int(os.getenv("POSTGRES_PORT", "5434"))
-POSTGRES_USER: str = os.getenv("POSTGRES_USER", "oracle")
-POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "3YZmch87tlXn4DmEmIIauuu6K")
+POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
+POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "postgres")
 POSTGRES_DB: str = os.getenv("POSTGRES_DB", "repo_knowledge")
 
 
 # ── Ollama ───────────────────────────────────────────────────────────────
-OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://100.70.3.86:11434")
+OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://192.168.0.234:11434")
 EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
 # Timeout in seconds for Ollama embed calls.

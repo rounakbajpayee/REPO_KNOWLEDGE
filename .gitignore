@@ -9,5 +9,8 @@ build/
 .pytest_cache/
 .ruff_cache/
 *.log
+*.jsonl
+logs/
 scratch/
 
+.coverage

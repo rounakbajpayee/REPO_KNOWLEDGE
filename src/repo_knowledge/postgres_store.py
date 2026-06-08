@@ -153,18 +153,25 @@ class PostgresStore:
                 """)
 
                 # BM25 full-text search: generated tsvector column + GIN index
-                # ALTER is idempotent (IF NOT EXISTS); index creation is skipped if it exists.
+                # Check if the column already exists before running ALTER TABLE,
+                # which locks the table and rewrites every row if it does not exist.
+                # Skipping the ALTER when already present eliminates ~2s startup cost.
                 cur.execute("""
-                    ALTER TABLE chunks
-                        ADD COLUMN IF NOT EXISTS content_tsv TSVECTOR
-                        GENERATED ALWAYS AS (
-                            to_tsvector('english',
-                                coalesce(symbol, '') || ' ' ||
-                                coalesce(chunk_type, '') || ' ' ||
-                                coalesce(content, '')
-                            )
-                        ) STORED;
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'chunks' AND column_name = 'content_tsv';
                 """)
+                if not cur.fetchone():
+                    cur.execute("""
+                        ALTER TABLE chunks
+                            ADD COLUMN content_tsv TSVECTOR
+                            GENERATED ALWAYS AS (
+                                to_tsvector('english',
+                                    coalesce(symbol, '') || ' ' ||
+                                    coalesce(chunk_type, '') || ' ' ||
+                                    coalesce(content, '')
+                                )
+                            ) STORED;
+                    """)
                 cur.execute("""
                     CREATE INDEX IF NOT EXISTS chunks_content_tsv_gin
                     ON chunks USING GIN (content_tsv);
@@ -332,6 +339,17 @@ class PostgresStore:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT path, content_hash 
+                    FROM files 
+                    WHERE project_id = (SELECT id FROM projects WHERE name = %s);
+                """, (project_name,))
+                return {row[0]: row[1] for row in cur.fetchall()}
+
+    def get_indexed_file_mtimes(self, project_name: str) -> dict[str, float]:
+        """Return a mapping of {file_path: file_mtime} stored in PostgreSQL."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT path, file_mtime 
                     FROM files 
                     WHERE project_id = (SELECT id FROM projects WHERE name = %s);
                 """, (project_name,))
