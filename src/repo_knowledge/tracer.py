@@ -29,6 +29,7 @@ Log file: <repo_root>/logs/repo_knowledge.jsonl  (same file as legacy logger)
 
 from __future__ import annotations
 
+import contextvars
 import json
 import queue
 import secrets
@@ -44,7 +45,7 @@ _LOG_DIR = Path(__file__).resolve().parent.parent.parent / "logs"
 _LOG_PATH = _LOG_DIR / "repo_knowledge.jsonl"
 
 # ── Background writer ─────────────────────────────────────────────────────────
-_queue: queue.SimpleQueue[str] = queue.SimpleQueue()
+_queue: queue.Queue[str] = queue.Queue()
 
 # Batch flush parameters
 _BATCH_MAX = 50  # max records per DB flush
@@ -125,8 +126,6 @@ def new_trace_id() -> str:
     """Return a fresh 8-character lowercase hex string. Cryptographically random."""
     return secrets.token_hex(4)  # 4 bytes → 8 hex chars
 
-
-import contextvars  # noqa: E402
 
 _trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("trace_id", default=None)
 

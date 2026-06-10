@@ -8,6 +8,7 @@ Tests use _drain() to flush the queue before asserting on output.
 from __future__ import annotations
 
 import json
+import queue
 import time
 from pathlib import Path
 
@@ -25,11 +26,14 @@ def _reload_tracer(tmp_path: Path):
     """
     import repo_knowledge.tracer as tracer_mod
 
-    while not tracer_mod._queue.empty():
+    # Drain any stale items left by previous tests.
+    # queue.Queue.get_nowait() raises queue.Empty when empty — safe to loop.
+    while True:
         try:
             tracer_mod._queue.get_nowait()
-        except Exception:
+        except queue.Empty:
             break
+
     tracer_mod._LOG_DIR = tmp_path
     tracer_mod._LOG_PATH = tmp_path / "repo_knowledge.jsonl"
     return tracer_mod
@@ -41,9 +45,9 @@ def _drain(tracer_mod, timeout: float = 5.0) -> None:
     while not tracer_mod._queue.empty():
         if time.monotonic() > deadline:
             raise TimeoutError("Tracer queue did not drain within timeout")
-        time.sleep(0.01)
-    # One extra tick for the writer thread to finish the final write.
-    time.sleep(0.05)
+        time.sleep(0.005)
+    # One extra sleep so the writer thread finishes its current file write.
+    time.sleep(0.1)
 
 
 # ---------------------------------------------------------------------------
