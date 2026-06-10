@@ -19,6 +19,7 @@ from typing import Protocol
 import httpx
 
 from repo_knowledge.config import EMBEDDING_DIM, EMBEDDING_MODEL, OLLAMA_TIMEOUT, OLLAMA_URL
+from repo_knowledge.tracer import get_trace_id
 
 
 class Embedder(Protocol):
@@ -70,9 +71,12 @@ class OllamaEmbedder:
         Ollama /api/embed supports batched input natively.
         """
         try:
+            trace_id = get_trace_id()
+            headers = {"X-Trace-ID": trace_id} if trace_id else None
             response = self._client.post(
                 f"{self._url}/api/embed",
                 json={"model": self._model, "input": texts},
+                headers=headers,
             )
             response.raise_for_status()
         except httpx.TimeoutException as e:

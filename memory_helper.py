@@ -168,6 +168,7 @@ def main(diff: bool, commits: int, transcript: bool, topic: str | None) -> None:
 
     # Defensively truncate to prevent blowing context window or hitting output limits
     if len(source_text) > 8000:
+        click.secho("  [WARN] Source text truncated to 8000 chars for LLM analysis", fg="yellow", err=True)
         source_text = source_text[:8000] + "\n... [SOURCE TRUNCATED TO SAVE TOKENS] ...\n"
 
 
