@@ -14,16 +14,24 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Any
 
 from repo_knowledge.config import RERANK_MODEL
 
+log = logging.getLogger(__name__)
+
+try:
+    import sentence_transformers  # type: ignore[import]
+except ImportError:
+    log.warning("Reranker unavailable: sentence-transformers not installed. Install with: pip install repo-knowledge[reranker]")
+
 
 # ── Singleton loader ──────────────────────────────────────────────────────────
 
 _model: Any = None          # CrossEncoder instance once loaded
-_model_lock = threading.Lock()
+_init_lock = threading.Lock()
 _model_failed = False       # Set True if import/load fails; skips retries
 
 
@@ -35,7 +43,7 @@ def _load_model() -> Any | None:
     if _model_failed:
         return None
 
-    with _model_lock:
+    with _init_lock:
         if _model is not None:
             return _model
         if _model_failed:
@@ -49,6 +57,9 @@ def _load_model() -> Any | None:
             except Exception:
                 # Fallback to downloading/checking online if not cached locally
                 _model = CrossEncoder(RERANK_MODEL, local_files_only=False)
+        except ImportError:
+            _model_failed = True
+            return None
         except Exception:
             _model_failed = True
             return None
@@ -90,8 +101,7 @@ def rerank(
         return candidates[:top_k]
 
     pairs = [(query, c.get("content", "")) for c in candidates]
-    with _model_lock:
-        scores: list[float] = model.predict(pairs, show_progress_bar=False).tolist()
+    scores: list[float] = model.predict(pairs, show_progress_bar=False).tolist()
 
     # Attach rerank scores and sort descending
     scored = sorted(

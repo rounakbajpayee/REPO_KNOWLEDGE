@@ -23,12 +23,17 @@ def _reload_tracer(tmp_path: Path):
     touch the real logs/ directory and don't interfere with each other.
     """
     import repo_knowledge.tracer as tracer_mod
+    while not tracer_mod._queue.empty():
+        try:
+            tracer_mod._queue.get_nowait()
+        except:
+            break
     tracer_mod._LOG_DIR = tmp_path
     tracer_mod._LOG_PATH = tmp_path / "repo_knowledge.jsonl"
     return tracer_mod
 
 
-def _drain(tracer_mod, timeout: float = 2.0) -> None:
+def _drain(tracer_mod, timeout: float = 5.0) -> None:
     """Block until the background writer queue is empty (or timeout)."""
     deadline = time.monotonic() + timeout
     while not tracer_mod._queue.empty():

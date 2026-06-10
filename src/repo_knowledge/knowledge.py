@@ -24,7 +24,6 @@ from pathlib import Path
 from repo_knowledge.chunker import chunk_file, chunk_project
 from repo_knowledge.config import IGNORE_DIRS, IGNORE_EXTENSIONS, SUPPORTED_EXTENSIONS, PROJECTS_ROOT, SEARCH_TOP_K, RERANK_ENABLED
 from repo_knowledge.embedder import Embedder, default_embedder
-from repo_knowledge.logger import log
 from repo_knowledge.scanner import Project, get_project, scan_projects
 from repo_knowledge.store import Store
 from repo_knowledge.tracer import trace
@@ -44,8 +43,7 @@ class KnowledgeService:
         self._projects_cache_ts: float = 0.0
         self._projects_cache_lock = threading.Lock()
         self._vault_lock = threading.Lock()
-        from repo_knowledge.postgres_store import PostgresStore
-        self._pg = getattr(self._store, "_pg", None) or PostgresStore()
+        self._pg = self._store._pg
 
 
 
