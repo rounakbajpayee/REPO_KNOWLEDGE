@@ -1,19 +1,30 @@
 import uuid
 from datetime import datetime, timezone
+
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qdrant_models
+
 from repo_knowledge.chunker import Chunk
 from repo_knowledge.config import (
-    EMBEDDING_DIM, EMBEDDING_MODEL, QDRANT_COLLECTION, QDRANT_URL,
-    RERANK_FETCH_K, SEARCH_SCORE_THRESHOLD,
+    EMBEDDING_DIM,
+    EMBEDDING_MODEL,
+    QDRANT_COLLECTION,
+    QDRANT_URL,
+    RERANK_FETCH_K,
+    SEARCH_SCORE_THRESHOLD,
 )
 from repo_knowledge.postgres_store import PostgresStore
 
 
 class Store:
-    def __init__(self, url=QDRANT_URL, collection=QDRANT_COLLECTION,
-                 embedding_dim=EMBEDDING_DIM, embedding_model=EMBEDDING_MODEL,
-                 postgres_store=None):
+    def __init__(
+        self,
+        url=QDRANT_URL,
+        collection=QDRANT_COLLECTION,
+        embedding_dim=EMBEDDING_DIM,
+        embedding_model=EMBEDDING_MODEL,
+        postgres_store=None,
+    ):
         self._url = url
         self._client = QdrantClient(url=url)
         self._collection = collection
@@ -21,7 +32,6 @@ class Store:
         self._embedding_model = embedding_model
         self._collection_ready = False
         self._pg = postgres_store or PostgresStore()
-
 
     def _ensure_collection(self) -> None:
         """
@@ -60,7 +70,7 @@ class Store:
             raise ValueError(f"chunks ({len(chunks)}) and vectors ({len(vectors)}) length mismatch")
         self._ensure_collection()
         now = datetime.now(timezone.utc).isoformat()
-        
+
         # Pre-generate UUIDs so they match between Qdrant and PostgreSQL
         chunk_uuids = [str(uuid.uuid4()) for _ in chunks]
 
@@ -69,10 +79,14 @@ class Store:
                 id=cuuid,
                 vector=vector,
                 payload={
-                    "project": chunk.project, "path": chunk.path,
-                    "language": chunk.language, "chunk_type": chunk.chunk_type,
-                    "symbol": chunk.symbol, "content": chunk.content,
-                    "start_line": chunk.start_line, "end_line": chunk.end_line,
+                    "project": chunk.project,
+                    "path": chunk.path,
+                    "language": chunk.language,
+                    "chunk_type": chunk.chunk_type,
+                    "symbol": chunk.symbol,
+                    "content": chunk.content,
+                    "start_line": chunk.start_line,
+                    "end_line": chunk.end_line,
                     "embedding_model": self._embedding_model,
                     "indexed_at": now,
                     "content_hash": chunk.content_hash,
@@ -83,7 +97,7 @@ class Store:
         ]
         batch_size = 100
         for i in range(0, len(points), batch_size):
-            self._client.upsert(collection_name=self._collection, points=points[i: i + batch_size])
+            self._client.upsert(collection_name=self._collection, points=points[i : i + batch_size])
 
         # Write to PostgreSQL relational database (Source of Truth)
         if chunks:
@@ -128,7 +142,7 @@ class Store:
                     project_id=project_id,
                     path=path,
                     content_hash=first_chunk.content_hash,
-                    file_mtime=first_chunk.file_mtime
+                    file_mtime=first_chunk.file_mtime,
                 )
                 just_chunks = [item[0] for item in c_list]
                 just_uuids = [item[1] for item in c_list]
@@ -140,9 +154,12 @@ class Store:
             collection_name=self._collection,
             points_selector=qdrant_models.FilterSelector(
                 filter=qdrant_models.Filter(
-                    must=[qdrant_models.FieldCondition(
-                        key="project", match=qdrant_models.MatchValue(value=project),
-                    )]
+                    must=[
+                        qdrant_models.FieldCondition(
+                            key="project",
+                            match=qdrant_models.MatchValue(value=project),
+                        )
+                    ]
                 )
             ),
         )
@@ -157,17 +174,18 @@ class Store:
                 filter=qdrant_models.Filter(
                     must=[
                         qdrant_models.FieldCondition(
-                            key="project", match=qdrant_models.MatchValue(value=project),
+                            key="project",
+                            match=qdrant_models.MatchValue(value=project),
                         ),
                         qdrant_models.FieldCondition(
-                            key="path", match=qdrant_models.MatchValue(value=rel_path),
+                            key="path",
+                            match=qdrant_models.MatchValue(value=rel_path),
                         ),
                     ]
                 )
             ),
         )
         self._pg.delete_file(project, rel_path)
-
 
     def get_indexed_file_hashes(self, project: str) -> dict[str, str]:
         """
@@ -182,7 +200,6 @@ class Store:
         Loads directly from PostgreSQL.
         """
         return self._pg.get_indexed_file_mtimes(project)
-
 
     def search(
         self,
@@ -205,13 +222,19 @@ class Store:
             query_filter = None
             if project:
                 query_filter = qdrant_models.Filter(
-                    must=[qdrant_models.FieldCondition(
-                        key="project", match=qdrant_models.MatchValue(value=project),
-                    )]
+                    must=[
+                        qdrant_models.FieldCondition(
+                            key="project",
+                            match=qdrant_models.MatchValue(value=project),
+                        )
+                    ]
                 )
             qdrant_hits = self._client.search(
-                collection_name=self._collection, query_vector=query_vector,
-                limit=fetch_k, query_filter=query_filter, with_payload=True,
+                collection_name=self._collection,
+                query_vector=query_vector,
+                limit=fetch_k,
+                query_filter=query_filter,
+                with_payload=True,
             )
 
             seen_hashes: set[str] = set()
@@ -237,13 +260,19 @@ class Store:
         query_filter = None
         if project:
             query_filter = qdrant_models.Filter(
-                must=[qdrant_models.FieldCondition(
-                    key="project", match=qdrant_models.MatchValue(value=project),
-                )]
+                must=[
+                    qdrant_models.FieldCondition(
+                        key="project",
+                        match=qdrant_models.MatchValue(value=project),
+                    )
+                ]
             )
         qdrant_hits = self._client.search(
-            collection_name=self._collection, query_vector=query_vector,
-            limit=fetch_k, query_filter=query_filter, with_payload=True,
+            collection_name=self._collection,
+            query_vector=query_vector,
+            limit=fetch_k,
+            query_filter=query_filter,
+            with_payload=True,
         )
 
         # Build: chunk_id → payload dict with cosine score (above threshold)
@@ -286,7 +315,6 @@ class Store:
 
         return candidates
 
-
     def list_projects(self) -> list[str]:
         """Return indexed project names.
 
@@ -306,8 +334,12 @@ class Store:
         offset = None
         while True:
             records, next_offset = self._client.scroll(
-                collection_name=self._collection, scroll_filter=None,
-                limit=250, offset=offset, with_payload=["project"], with_vectors=False,
+                collection_name=self._collection,
+                scroll_filter=None,
+                limit=250,
+                offset=offset,
+                with_payload=["project"],
+                with_vectors=False,
             )
             for record in records:
                 if record.payload and "project" in record.payload:
@@ -317,7 +349,6 @@ class Store:
             offset = next_offset
         return sorted(projects)
 
-
     def get_chunks_for_path(self, project: str, rel_path: str) -> list[dict]:
         self._ensure_collection()
         chunks: list[dict] = []
@@ -325,10 +356,12 @@ class Store:
         filter = qdrant_models.Filter(
             must=[
                 qdrant_models.FieldCondition(
-                    key="project", match=qdrant_models.MatchValue(value=project),
+                    key="project",
+                    match=qdrant_models.MatchValue(value=project),
                 ),
                 qdrant_models.FieldCondition(
-                    key="path", match=qdrant_models.MatchValue(value=rel_path),
+                    key="path",
+                    match=qdrant_models.MatchValue(value=rel_path),
                 ),
             ]
         )

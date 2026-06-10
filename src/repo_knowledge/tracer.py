@@ -47,13 +47,14 @@ _LOG_PATH = _LOG_DIR / "repo_knowledge.jsonl"
 _queue: queue.SimpleQueue[str] = queue.SimpleQueue()
 
 # Batch flush parameters
-_BATCH_MAX = 50       # max records per DB flush
+_BATCH_MAX = 50  # max records per DB flush
 _BATCH_TIMEOUT = 0.2  # seconds to wait before flushing a partial batch
 
 
 def _writer_loop() -> None:
     """Drain the queue, write to JSONL and batch-flush to PostgreSQL. Never dies."""
     from repo_knowledge.postgres_store import PostgresStore
+
     pg: PostgresStore | None = None
     try:
         pg = PostgresStore()
@@ -82,22 +83,23 @@ def _writer_loop() -> None:
             # 2. Accumulate for DB batch
             try:
                 record = json.loads(line)
-                pending.append({
-                    "ts_str": record["ts"],
-                    "trace_id": record.get("trace_id"),
-                    "event": record["event"],
-                    "severity": record.get("severity", "INFO"),
-                    "subsystem": record.get("subsystem", "unknown"),
-                    "duration_ms": record.get("duration_ms"),
-                    "payload": record.get("payload"),
-                })
+                pending.append(
+                    {
+                        "ts_str": record["ts"],
+                        "trace_id": record.get("trace_id"),
+                        "event": record["event"],
+                        "severity": record.get("severity", "INFO"),
+                        "subsystem": record.get("subsystem", "unknown"),
+                        "duration_ms": record.get("duration_ms"),
+                        "payload": record.get("payload"),
+                    }
+                )
             except Exception:
                 pass
 
         now = time.monotonic()
-        should_flush = (
-            len(pending) >= _BATCH_MAX
-            or (pending and (now - last_flush) >= _BATCH_TIMEOUT)
+        should_flush = len(pending) >= _BATCH_MAX or (
+            pending and (now - last_flush) >= _BATCH_TIMEOUT
         )
 
         if should_flush:
@@ -118,6 +120,7 @@ _writer_thread.start()
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+
 def new_trace_id() -> str:
     """Return a fresh 8-character lowercase hex string. Cryptographically random."""
     return secrets.token_hex(4)  # 4 bytes → 8 hex chars
@@ -127,14 +130,18 @@ import contextvars
 
 _trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("trace_id", default=None)
 
+
 def set_trace_id(trace_id: str | None) -> contextvars.Token:
     return _trace_id_var.set(trace_id)
+
 
 def get_trace_id() -> str | None:
     return _trace_id_var.get()
 
+
 def reset_trace_id(token: contextvars.Token) -> None:
     _trace_id_var.reset(token)
+
 
 def trace(
     event: str,

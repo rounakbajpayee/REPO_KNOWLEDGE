@@ -4,6 +4,7 @@ tests/test_tracer.py — Unit tests for tracer.py (Issue #2).
 The tracer is non-blocking: trace() enqueues and a daemon thread writes.
 Tests use _drain() to flush the queue before asserting on output.
 """
+
 from __future__ import annotations
 
 import json
@@ -12,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _reload_tracer(tmp_path: Path):
     """
@@ -23,6 +24,7 @@ def _reload_tracer(tmp_path: Path):
     touch the real logs/ directory and don't interfere with each other.
     """
     import repo_knowledge.tracer as tracer_mod
+
     while not tracer_mod._queue.empty():
         try:
             tracer_mod._queue.get_nowait()
@@ -48,12 +50,14 @@ def _drain(tracer_mod, timeout: float = 5.0) -> None:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 def test_trace_writes_jsonl_line(tmp_path: Path) -> None:
     """trace() eventually writes a JSONL record with all required schema fields."""
     tracer_mod = _reload_tracer(tmp_path)
 
-    tracer_mod.trace("search", subsystem="knowledge", trace_id="aabbccdd",
-                     duration_ms=42, query="auth flow")
+    tracer_mod.trace(
+        "search", subsystem="knowledge", trace_id="aabbccdd", duration_ms=42, query="auth flow"
+    )
     _drain(tracer_mod)
 
     log_file = tmp_path / "repo_knowledge.jsonl"

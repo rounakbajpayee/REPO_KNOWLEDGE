@@ -8,15 +8,15 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, StreamingResponse
+from mcp.server.sse import SseServerTransport
 from pydantic import BaseModel
 
+from repo_knowledge.config import POSTGRES_HOST
 from repo_knowledge.knowledge import KnowledgeService
-from repo_knowledge.config import POSTGRES_PORT, POSTGRES_HOST
-from repo_knowledge.tracer import trace
-from mcp.server.sse import SseServerTransport
 from repo_knowledge.mcp_server import server as mcp_server
 
 # Setup logger
@@ -27,10 +27,12 @@ app = FastAPI(title="Repository Knowledge Dashboard")
 
 sse = SseServerTransport("/messages/")
 
+
 @app.get("/sse")
 async def handle_sse(request: Request):
     async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
         await mcp_server.run(streams[0], streams[1], mcp_server.create_initialization_options())
+
 
 app.mount("/messages/", sse.handle_post_message)
 
@@ -44,6 +46,7 @@ app.add_middleware(
 )
 
 _svc: Optional[KnowledgeService] = None
+
 
 def get_service() -> KnowledgeService:
     global _svc
@@ -65,6 +68,7 @@ class ReindexRequest(BaseModel):
 
 # Endpoints
 
+
 @app.get("/", response_class=HTMLResponse)
 def read_root():
     """Serve the single-page application dashboard."""
@@ -78,7 +82,7 @@ def read_root():
 def get_status():
     """Retrieve connection status of all external dependencies."""
     svc = get_service()
-    
+
     postgres_ok = False
     try:
         postgres_ok = svc._pg.health_check()
@@ -100,25 +104,21 @@ def get_status():
     return {
         "postgres": {
             "status": "connected" if postgres_ok else "disconnected",
-            "host": f"{POSTGRES_HOST}:{5434}"
+            "host": f"{POSTGRES_HOST}:{5434}",
         },
-        "qdrant": {
-            "status": "connected" if qdrant_ok else "disconnected",
-            "url": svc._store._url
-        },
+        "qdrant": {"status": "connected" if qdrant_ok else "disconnected", "url": svc._store._url},
         "ollama": {
             "status": "connected" if ollama_ok else "disconnected",
-            "model": svc._embedder.model
-        }
+            "model": svc._embedder.model,
+        },
     }
-
 
 
 @app.get("/api/projects")
 def get_projects():
     """Get all projects from scanner and DB statistics."""
     svc = get_service()
-    
+
     # Scanned local projects
     try:
         scanned = svc.list_projects()
@@ -143,7 +143,7 @@ def get_projects():
                             "stack": row[1],
                             "last_indexed_at": row[2].isoformat() if row[2] else None,
                             "file_count": row[3],
-                            "chunk_count": row[4]
+                            "chunk_count": row[4],
                         }
     except Exception as e:
         logger.warning(f"Could not retrieve PostgreSQL project statistics: {e}")
@@ -152,14 +152,16 @@ def get_projects():
     for proj in scanned:
         name = proj["name"]
         stats = pg_stats.get(name, {})
-        results.append({
-            "name": name,
-            "stack": stats.get("stack") or proj["stack"] or "Unknown",
-            "indexed": proj["indexed"],
-            "last_indexed_at": stats.get("last_indexed_at"),
-            "file_count": stats.get("file_count") or 0,
-            "chunk_count": stats.get("chunk_count") or 0
-        })
+        results.append(
+            {
+                "name": name,
+                "stack": stats.get("stack") or proj["stack"] or "Unknown",
+                "indexed": proj["indexed"],
+                "last_indexed_at": stats.get("last_indexed_at"),
+                "file_count": stats.get("file_count") or 0,
+                "chunk_count": stats.get("chunk_count") or 0,
+            }
+        )
 
     return results
 
@@ -177,11 +179,10 @@ def search_sandbox(req: SearchRequest):
 
 # Ordered list of (label, candidate relative paths) to probe per project
 _DOC_CANDIDATES: list[tuple[str, list[str]]] = [
-    ("README",       ["README.md", "README.rst", "README.txt", "readme.md"]),
+    ("README", ["README.md", "README.rst", "README.txt", "readme.md"]),
     ("Architecture", ["ARCHITECTURE.md", "docs/architecture.md", "docs/ARCHITECTURE.md"]),
-    ("Runbook",      ["RUNBOOK.md", "docs/runbook.md", "docs/RUNBOOK.md"]),
+    ("Runbook", ["RUNBOOK.md", "docs/runbook.md", "docs/RUNBOOK.md"]),
 ]
-
 
 
 @app.get("/api/projects/{project_name}/docs")
@@ -200,11 +201,13 @@ def get_project_docs(project_name: str):
             if full_path.exists() and full_path.is_file():
                 try:
                     content = full_path.read_text(encoding="utf-8", errors="ignore")
-                    docs.append({
-                        "label": label,
-                        "filename": rel_path,
-                        "content": content,
-                    })
+                    docs.append(
+                        {
+                            "label": label,
+                            "filename": rel_path,
+                            "content": content,
+                        }
+                    )
                 except OSError:
                     pass
                 break  # Found this doc type — move to next candidate group
@@ -216,13 +219,11 @@ def get_project_docs(project_name: str):
     }
 
 
-
-
 @app.post("/api/reindex")
 async def reindex_project(req: ReindexRequest):
     """Triggers project reindexing in the background."""
     svc = get_service()
-    
+
     # Run in thread executor to prevent blocking
     loop = asyncio.get_event_loop()
     try:
@@ -236,7 +237,7 @@ async def reindex_project(req: ReindexRequest):
 async def re_embed_projects():
     """Triggers vector re-embedding for all projects in PostgreSQL."""
     svc = get_service()
-    
+
     loop = asyncio.get_event_loop()
     try:
         res = await loop.run_in_executor(None, svc.re_embed_all_projects)
@@ -249,10 +250,10 @@ async def re_embed_projects():
 def stream_logs(request: Request):
     """SSE endpoint streaming live audit log records from PostgreSQL."""
     svc = get_service()
-    
+
     async def sse_generator():
         last_time = datetime.now(timezone.utc)
-        
+
         # Helper to query new logs from Postgres
         def fetch_new_logs(since_time):
             if not svc._pg.health_check():
@@ -260,17 +261,24 @@ def stream_logs(request: Request):
             try:
                 with svc._pg._get_connection() as conn:
                     with conn.cursor() as cur:
-                        cur.execute("""
+                        cur.execute(
+                            """
                             SELECT ts, trace_id, event, severity, subsystem, duration_ms, payload
                             FROM audit_logs
                             WHERE ts > %s
                             ORDER BY id ASC;
-                        """, (since_time,))
+                        """,
+                            (since_time,),
+                        )
                         return [
                             {
-                                "ts": r[0].isoformat(), "trace_id": r[1], "event": r[2],
-                                "severity": r[3], "subsystem": r[4], "duration_ms": r[5],
-                                "payload": r[6]
+                                "ts": r[0].isoformat(),
+                                "trace_id": r[1],
+                                "event": r[2],
+                                "severity": r[3],
+                                "subsystem": r[4],
+                                "duration_ms": r[5],
+                                "payload": r[6],
                             }
                             for r in cur.fetchall()
                         ]
@@ -303,7 +311,7 @@ def stream_logs(request: Request):
                     last_time = datetime.fromisoformat(last_time_str)
                 except Exception:
                     last_time = datetime.now(timezone.utc)
-            
+
             await asyncio.sleep(1.0)
 
     return StreamingResponse(sse_generator(), media_type="text/event-stream")
@@ -311,5 +319,5 @@ def stream_logs(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("repo_knowledge.web_ui.server:app", host="127.0.0.1", port=8000, reload=True)
 
+    uvicorn.run("repo_knowledge.web_ui.server:app", host="127.0.0.1", port=8000, reload=True)

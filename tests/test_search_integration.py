@@ -1,10 +1,12 @@
-import time
 import logging
+import time
 from unittest.mock import MagicMock, patch
+
+from repo_knowledge.config import OLLAMA_URL, QDRANT_URL
 from repo_knowledge.knowledge import KnowledgeService
-from repo_knowledge.config import QDRANT_URL, OLLAMA_URL
 
 logging.basicConfig(level=logging.INFO)
+
 
 @patch("repo_knowledge.knowledge.Store")
 @patch("repo_knowledge.knowledge.default_embedder")
@@ -35,13 +37,18 @@ def test_search_integration(mock_default_embedder, mock_store_class):
     # Optional dependencies caching and reranking check
     with patch("repo_knowledge.knowledge.search_cache.get_cached", return_value=None):
         with patch("repo_knowledge.knowledge.search_cache.set_cached"):
-            with patch("repo_knowledge.knowledge.search_reranker.rerank", side_effect=lambda q, c, top_k: c[:top_k]):
+            with patch(
+                "repo_knowledge.knowledge.search_reranker.rerank",
+                side_effect=lambda q, c, top_k: c[:top_k],
+            ):
                 svc = KnowledgeService(store=mock_store, embedder=mock_embedder)
                 print(f"Init took {time.time() - t0:.2f}s")
 
                 print("Searching...")
                 t1 = time.time()
-                res = svc.search("knowledge service embedding vector store", project="REPO_KNOWLEDGE", top_k=3)
+                res = svc.search(
+                    "knowledge service embedding vector store", project="REPO_KNOWLEDGE", top_k=3
+                )
                 print(f"Search took {time.time() - t1:.2f}s")
                 print(f"Found {len(res)} results.")
                 for r in res:

@@ -20,15 +20,20 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-
+from repo_knowledge import cache as search_cache
+from repo_knowledge import reranker as search_reranker
 from repo_knowledge.chunker import chunk_file, chunk_project
-from repo_knowledge.config import IGNORE_EXTENSIONS, SUPPORTED_EXTENSIONS, PROJECTS_ROOT, SEARCH_TOP_K, RERANK_ENABLED
+from repo_knowledge.config import (
+    IGNORE_EXTENSIONS,
+    PROJECTS_ROOT,
+    RERANK_ENABLED,
+    SEARCH_TOP_K,
+    SUPPORTED_EXTENSIONS,
+)
 from repo_knowledge.embedder import default_embedder
 from repo_knowledge.scanner import get_project, scan_projects
 from repo_knowledge.store import Store
 from repo_knowledge.tracer import trace
-from repo_knowledge import cache as search_cache
-from repo_knowledge import reranker as search_reranker
 
 _LIST_PROJECTS_TTL = 30.0  # seconds
 
@@ -44,8 +49,6 @@ class KnowledgeService:
         self._projects_cache_lock = threading.Lock()
         self._vault_lock = threading.Lock()
         self._pg = self._store._pg
-
-
 
     def list_projects(self) -> list[dict]:
         with self._projects_cache_lock:
@@ -73,34 +76,58 @@ class KnowledgeService:
     def get_project_context(self, project_name: str) -> dict:
         project = get_project(project_name, self._projects_root)
         if not project:
-            trace("error", event_source="get_project_context",
-                  message=f"Project not found: {project_name}", severity="ERROR",
-                  subsystem="knowledge")
+            trace(
+                "error",
+                event_source="get_project_context",
+                message=f"Project not found: {project_name}",
+                severity="ERROR",
+                subsystem="knowledge",
+            )
             return {"error": f"Project '{project_name}' not found in {self._projects_root}"}
         readme_excerpt = _read_readme(project.path)
         tree = _build_tree(project.path, max_depth=2)
         # Exclude ignored dirs from file count (matches what gets indexed)
         from repo_knowledge.scanner import list_project_files
+
         file_count = len(list_project_files(project.path))
         indexed = project_name in set(self._store.list_projects())
-        trace("get_project_context", project=project_name, file_count=file_count,
-              indexed=indexed, subsystem="knowledge")
+        trace(
+            "get_project_context",
+            project=project_name,
+            file_count=file_count,
+            indexed=indexed,
+            subsystem="knowledge",
+        )
         return {
-            "name": project.name, "path": str(project.path), "stack": project.stack,
-            "readme_excerpt": readme_excerpt, "directory_tree": tree,
-            "file_count": file_count, "indexed": indexed,
+            "name": project.name,
+            "path": str(project.path),
+            "stack": project.stack,
+            "readme_excerpt": readme_excerpt,
+            "directory_tree": tree,
+            "file_count": file_count,
+            "indexed": indexed,
         }
 
-    def search(self, query: str, project: str | None = None, top_k: int = SEARCH_TOP_K) -> list[dict]:
+    def search(
+        self, query: str, project: str | None = None, top_k: int = SEARCH_TOP_K
+    ) -> list[dict]:
         t0 = time.monotonic()
 
         # ── 1. Redis cache check ──────────────────────────────────────────────────
         cached = search_cache.get_cached(query, project, top_k)
         if cached is not None:
             duration_ms = round((time.monotonic() - t0) * 1000)
-            trace("search", query=query, project=project, top_k=top_k,
-                  results=len(cached), duration_ms=duration_ms, cache_hit=True,
-                  search_quality="cached", subsystem="knowledge")
+            trace(
+                "search",
+                query=query,
+                project=project,
+                top_k=top_k,
+                results=len(cached),
+                duration_ms=duration_ms,
+                cache_hit=True,
+                search_quality="cached",
+                subsystem="knowledge",
+            )
             for r in cached:
                 r["search_quality"] = "cached"
             return cached
@@ -109,9 +136,7 @@ class KnowledgeService:
         vector = self._embedder.embed(query)
 
         # ── 3. Hybrid recall: Qdrant + BM25 via RRF ────────────────────────────────
-        candidates = self._store.search(
-            vector, top_k=top_k, project=project, query_text=query
-        )
+        candidates = self._store.search(vector, top_k=top_k, project=project, query_text=query)
 
         # ── 4. Cross-encoder rerank ───────────────────────────────────────────────
         if RERANK_ENABLED and candidates:
@@ -128,10 +153,18 @@ class KnowledgeService:
         else:
             search_quality = "none"
 
-        trace("search", query=query, project=project, top_k=top_k,
-              results=len(results), duration_ms=duration_ms,
-              cache_hit=False, reranked=RERANK_ENABLED,
-              search_quality=search_quality, subsystem="knowledge")
+        trace(
+            "search",
+            query=query,
+            project=project,
+            top_k=top_k,
+            results=len(results),
+            duration_ms=duration_ms,
+            cache_hit=False,
+            reranked=RERANK_ENABLED,
+            search_quality=search_quality,
+            subsystem="knowledge",
+        )
         for r in results:
             r["search_quality"] = search_quality
 
@@ -141,7 +174,9 @@ class KnowledgeService:
 
         return results
 
-    def list_files(self, project_name: str, path_prefix: str | None = None, extension: str | None = None) -> dict:
+    def list_files(
+        self, project_name: str, path_prefix: str | None = None, extension: str | None = None
+    ) -> dict:
         project_root = Path(self._projects_root) / project_name
         if not project_root.exists() or not project_root.is_dir():
             return {"error": f"Project '{project_name}' not found."}
@@ -151,28 +186,38 @@ class KnowledgeService:
         try:
             with self._pg._get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("""
+                    cur.execute(
+                        """
                         SELECT path, MAX(end_line)
                         FROM chunks
                         WHERE project = %s
                         GROUP BY path;
-                    """, (project_name,))
+                    """,
+                        (project_name,),
+                    )
                     db_line_counts = {row[0].replace("\\", "/"): row[1] for row in cur.fetchall()}
         except Exception:
             pass
 
         from repo_knowledge.scanner import list_project_files
+
         files_data = []
         for file_path in list_project_files(project_root):
             rel_path = str(file_path.relative_to(project_root)).replace("\\", "/")
             if path_prefix:
                 normalized_prefix = path_prefix.replace("\\", "/")
-                if not rel_path.startswith(normalized_prefix): continue
+                if not rel_path.startswith(normalized_prefix):
+                    continue
 
             suffix = file_path.suffix.lower()
             if extension and extension != "*":
-                if suffix != extension.lower(): continue
-            elif suffix in IGNORE_EXTENSIONS or (suffix not in SUPPORTED_EXTENSIONS and suffix not in (".plist", ".conf", ".ini") and file_path.name.lower() not in ("docker-compose.yml", "docker-compose.yaml")):
+                if suffix != extension.lower():
+                    continue
+            elif suffix in IGNORE_EXTENSIONS or (
+                suffix not in SUPPORTED_EXTENSIONS
+                and suffix not in (".plist", ".conf", ".ini")
+                and file_path.name.lower() not in ("docker-compose.yml", "docker-compose.yaml")
+            ):
                 continue
 
             line_count = db_line_counts.get(rel_path)
@@ -188,12 +233,18 @@ class KnowledgeService:
                     line_count = 0
 
             language = "text"
-            if suffix == ".py": language = "python"
-            elif suffix in (".js", ".jsx"): language = "javascript"
-            elif suffix in (".ts", ".tsx"): language = "typescript"
-            elif suffix == ".md": language = "markdown"
-            elif suffix in (".yml", ".yaml"): language = "yaml"
-            elif suffix == ".json": language = "json"
+            if suffix == ".py":
+                language = "python"
+            elif suffix in (".js", ".jsx"):
+                language = "javascript"
+            elif suffix in (".ts", ".tsx"):
+                language = "typescript"
+            elif suffix == ".md":
+                language = "markdown"
+            elif suffix in (".yml", ".yaml"):
+                language = "yaml"
+            elif suffix == ".json":
+                language = "json"
 
             files_data.append({"path": rel_path, "language": language, "line_count": line_count})
 
@@ -201,7 +252,7 @@ class KnowledgeService:
             "project": project_name,
             "files": sorted(files_data, key=lambda x: x["path"]),
             "total": len(files_data),
-            "filters": {"path_prefix": path_prefix, "extension": extension}
+            "filters": {"path_prefix": path_prefix, "extension": extension},
         }
 
     def search_symbols(self, query: str, project: str | None = None, top_k: int = 10) -> list[dict]:
@@ -223,50 +274,75 @@ class KnowledgeService:
 
         simplified_chunks = []
         for c in chunks:
-            simplified_chunks.append({
-                "symbol": c.get("symbol", ""),
-                "chunk_type": c.get("chunk_type", ""),
-                "start_line": c.get("start_line", 0),
-                "end_line": c.get("end_line", 0),
-            })
+            simplified_chunks.append(
+                {
+                    "symbol": c.get("symbol", ""),
+                    "chunk_type": c.get("chunk_type", ""),
+                    "start_line": c.get("start_line", 0),
+                    "end_line": c.get("end_line", 0),
+                }
+            )
 
         simplified_chunks.sort(key=lambda x: x["start_line"])
         return {
             "project": project_name,
             "path": path,
             "chunks": simplified_chunks,
-            "total": len(simplified_chunks)
+            "total": len(simplified_chunks),
         }
 
-    def get_file(self, project_name: str, path: str, start_line: int | None = None, end_line: int | None = None) -> dict:
+    def get_file(
+        self,
+        project_name: str,
+        path: str,
+        start_line: int | None = None,
+        end_line: int | None = None,
+    ) -> dict:
         project = get_project(project_name, self._projects_root)
         if not project:
-            trace("error", event_source="get_file", message=f"Project not found: {project_name}",
-                  severity="ERROR", subsystem="knowledge")
+            trace(
+                "error",
+                event_source="get_file",
+                message=f"Project not found: {project_name}",
+                severity="ERROR",
+                subsystem="knowledge",
+            )
             return {"error": f"Project '{project_name}' not found"}
         file_path = project.path / path
         if not file_path.exists():
-            trace("error", event_source="get_file",
-                  message=f"File not found: {path}", project=project_name,
-                  severity="ERROR", subsystem="knowledge")
+            trace(
+                "error",
+                event_source="get_file",
+                message=f"File not found: {path}",
+                project=project_name,
+                severity="ERROR",
+                subsystem="knowledge",
+            )
             return {"error": f"File not found: {path} in project {project_name}"}
         if not file_path.is_file():
             return {"error": f"Path is not a file: {path}"}
         try:
             content = file_path.read_text(encoding="utf-8", errors="ignore")
         except OSError as e:
-            trace("error", event_source="get_file", message=str(e), project=project_name,
-                  path=path, severity="ERROR", subsystem="knowledge")
+            trace(
+                "error",
+                event_source="get_file",
+                message=str(e),
+                project=project_name,
+                path=path,
+                severity="ERROR",
+                subsystem="knowledge",
+            )
             return {"error": f"Could not read file: {e}"}
-        
+
         lines = content.splitlines(keepends=True)
         total_lines = len(lines)
-        
+
         if start_line and end_line and start_line > end_line:
             return {"error": "start_line must be <= end_line"}
         if start_line and start_line > total_lines:
             return {"error": f"start_line {start_line} exceeds file length {total_lines}"}
-        
+
         sliced_content = content
         if start_line is not None or end_line is not None:
             s_idx = (start_line - 1) if start_line is not None else 0
@@ -274,10 +350,17 @@ class KnowledgeService:
             s_idx = max(0, min(s_idx, total_lines))
             e_idx = max(0, min(e_idx, total_lines))
             sliced_content = "".join(lines[s_idx:e_idx])
-            
-        trace("get_file", project=project_name, path=path, start_line=start_line, end_line=end_line,
-              line_count=total_lines, subsystem="knowledge")
-        
+
+        trace(
+            "get_file",
+            project=project_name,
+            path=path,
+            start_line=start_line,
+            end_line=end_line,
+            line_count=total_lines,
+            subsystem="knowledge",
+        )
+
         ret = {
             "project": project_name,
             "path": path,
@@ -294,8 +377,13 @@ class KnowledgeService:
         t0 = time.monotonic()
         project = get_project(project_name, self._projects_root)
         if not project:
-            trace("error", event_source="reindex", message=f"Project not found: {project_name}",
-                  severity="ERROR", subsystem="knowledge")
+            trace(
+                "error",
+                event_source="reindex",
+                message=f"Project not found: {project_name}",
+                severity="ERROR",
+                subsystem="knowledge",
+            )
             return {"error": f"Project '{project_name}' not found"}
 
         if force:
@@ -309,7 +397,7 @@ class KnowledgeService:
             # Incremental reindex: skip unchanged files, re-embed changed/new, delete removed
             trace("reindex_start", project=project_name, mode="incremental", subsystem="knowledge")
             indexed_hashes = self._store.get_indexed_file_hashes(project_name)
-            
+
             # Fetch indexed modification times from database
             indexed_mtimes = {}
             try:
@@ -319,11 +407,12 @@ class KnowledgeService:
 
             # Walk project files, compute current hashes
             from repo_knowledge.scanner import list_project_files
+
             current_files: dict[str, str] = {}  # rel_path → content_hash
             changed_chunks: list = []
             for file_path in list_project_files(project.path):
                 rel_path = str(file_path.relative_to(project.path))
-                
+
                 # Fetch modification time first
                 file_mtime = 0.0
                 try:
@@ -334,7 +423,11 @@ class KnowledgeService:
                 # If path exists in DB and mtime matches, skip reading and hashing
                 old_mtime = indexed_mtimes.get(rel_path, None)
                 old_hash = indexed_hashes.get(rel_path, None)
-                if old_mtime is not None and old_hash is not None and abs(old_mtime - file_mtime) < 0.01:
+                if (
+                    old_mtime is not None
+                    and old_hash is not None
+                    and abs(old_mtime - file_mtime) < 0.01
+                ):
                     current_files[rel_path] = old_hash
                     continue
 
@@ -344,11 +437,14 @@ class KnowledgeService:
                     continue
                 content_hash = hashlib.sha256(source.encode()).hexdigest()
                 current_files[rel_path] = content_hash
-                
+
                 if old_hash != content_hash:  # new or changed (old_hash "" also triggers)
                     new_chunks = chunk_file(
-                        file_path, project.path, project_name,
-                        content_hash=content_hash, file_mtime=file_mtime,
+                        file_path,
+                        project.path,
+                        project_name,
+                        content_hash=content_hash,
+                        file_mtime=file_mtime,
                     )
                     if new_chunks:
                         # Delete stale chunks for this file before re-adding
@@ -361,49 +457,85 @@ class KnowledgeService:
             for rel_path in removed:
                 self._store.delete_file(project_name, rel_path)
 
-            trace("reindex_incremental_stats", project=project_name,
-                  total=len(current_files), changed=len(changed_chunks),
-                  removed=len(removed), subsystem="knowledge")
+            trace(
+                "reindex_incremental_stats",
+                project=project_name,
+                total=len(current_files),
+                changed=len(changed_chunks),
+                removed=len(removed),
+                subsystem="knowledge",
+            )
 
         if not changed_chunks:
             duration_ms = round((time.monotonic() - t0) * 1000)
-            trace("reindex_complete", project=project_name, chunks=0,
-                  duration_ms=duration_ms, message="No changes detected", subsystem="knowledge")
+            trace(
+                "reindex_complete",
+                project=project_name,
+                chunks=0,
+                duration_ms=duration_ms,
+                message="No changes detected",
+                subsystem="knowledge",
+            )
             self._invalidate_projects_cache()
-            return {"project": project_name, "chunks_indexed": 0,
-                    "message": "No changes detected"}
+            return {"project": project_name, "chunks_indexed": 0, "message": "No changes detected"}
 
-        trace("reindex_chunked", project=project_name, chunks=len(changed_chunks), subsystem="knowledge")
+        trace(
+            "reindex_chunked",
+            project=project_name,
+            chunks=len(changed_chunks),
+            subsystem="knowledge",
+        )
 
         batch_size = 32
         all_vectors: list[list[float]] = []
         total_batches = (len(changed_chunks) + batch_size - 1) // batch_size
 
         for i in range(0, len(changed_chunks), batch_size):
-            batch = changed_chunks[i: i + batch_size]
+            batch = changed_chunks[i : i + batch_size]
             batch_num = i // batch_size + 1
             t_batch = time.monotonic()
             try:
                 vectors = self._embedder.embed_batch([c.content for c in batch])
                 all_vectors.extend(vectors)
                 duration_ms = round((time.monotonic() - t_batch) * 1000)
-                trace("embed_batch", project=project_name, batch=batch_num,
-                      total_batches=total_batches, size=len(batch), duration_ms=duration_ms,
-                      subsystem="knowledge")
+                trace(
+                    "embed_batch",
+                    project=project_name,
+                    batch=batch_num,
+                    total_batches=total_batches,
+                    size=len(batch),
+                    duration_ms=duration_ms,
+                    subsystem="knowledge",
+                )
             except RuntimeError as e:
-                trace("error", event_source="embedder", project=project_name,
-                      batch=batch_num, message=str(e), severity="ERROR", subsystem="knowledge")
+                trace(
+                    "error",
+                    event_source="embedder",
+                    project=project_name,
+                    batch=batch_num,
+                    message=str(e),
+                    severity="ERROR",
+                    subsystem="knowledge",
+                )
                 return {"project": project_name, "error": str(e), "chunks_indexed": 0}
 
         self._store.upsert_chunks(changed_chunks, all_vectors)
         duration_ms = round((time.monotonic() - t0) * 1000)
-        trace("reindex_complete", project=project_name, chunks=len(changed_chunks),
-              duration_ms=duration_ms, subsystem="knowledge")
+        trace(
+            "reindex_complete",
+            project=project_name,
+            chunks=len(changed_chunks),
+            duration_ms=duration_ms,
+            subsystem="knowledge",
+        )
         self._invalidate_projects_cache()
         # Flush stale search cache entries for this project
         search_cache.flush_project(project_name)
-        return {"project": project_name, "chunks_indexed": len(changed_chunks),
-                "message": f"Successfully indexed {len(changed_chunks)} chunks"}
+        return {
+            "project": project_name,
+            "chunks_indexed": len(changed_chunks),
+            "message": f"Successfully indexed {len(changed_chunks)} chunks",
+        }
 
     def log_decision(
         self,
@@ -419,7 +551,7 @@ class KnowledgeService:
         Thread-safe.
         """
         # Validate/slugify topic to avoid traversal vulnerabilities
-        slugified_topic = re.sub(r'[^a-zA-Z0-9_-]', '_', topic).lower()
+        slugified_topic = re.sub(r"[^a-zA-Z0-9_-]", "_", topic).lower()
 
         # 1. Try writing to PostgreSQL
         pg_err = None
@@ -429,12 +561,17 @@ class KnowledgeService:
                 entry_name=name,
                 description=description,
                 rationale=rationale,
-                options_considered=options_considered
+                options_considered=options_considered,
             )
         except Exception as e:
             pg_err = str(e)
-            trace("warning", event_source="log_decision_db", message=f"Failed to log decision to Postgres: {e}",
-                  severity="WARNING", subsystem="knowledge")
+            trace(
+                "warning",
+                event_source="log_decision_db",
+                message=f"Failed to log decision to Postgres: {e}",
+                severity="WARNING",
+                subsystem="knowledge",
+            )
 
         # 2. Write to Markdown file
         vault_dir = Path(self._projects_root) / "knowledge_vault"
@@ -443,8 +580,13 @@ class KnowledgeService:
             try:
                 vault_dir.mkdir(parents=True, exist_ok=True)
             except OSError as e:
-                trace("error", event_source="log_decision", message=f"Failed to create vault dir: {e}",
-                      severity="ERROR", subsystem="knowledge")
+                trace(
+                    "error",
+                    event_source="log_decision",
+                    message=f"Failed to create vault dir: {e}",
+                    severity="ERROR",
+                    subsystem="knowledge",
+                )
                 return {"error": f"Failed to create knowledge_vault directory: {e}"}
 
             vault_file = vault_dir / f"{slugified_topic}.md"
@@ -461,7 +603,6 @@ class KnowledgeService:
                     marker = "[REJECTED]" if opt_status.upper() == "REJECTED" else "[SELECTED]"
                     options_str += f"  - {marker} *{opt_name} ({opt_status}):* {opt_rat}\n"
 
-
             new_entry = f"## [{now_str}] {name}\n- **Description:** {description}\n{options_str}- **Rationale:** {rationale}\n"
 
             if not vault_file.exists():
@@ -471,14 +612,19 @@ created_at: {now_str}
 last_modified: {now_str}
 entries_count: 1
 ---
-# Decision Log: {slugified_topic.replace('_', ' ').title()}
+# Decision Log: {slugified_topic.replace("_", " ").title()}
 
 {new_entry}"""
                 try:
                     vault_file.write_text(initial, encoding="utf-8")
                 except OSError as e:
-                    trace("error", event_source="log_decision", message=f"Failed to write initial file: {e}",
-                          severity="ERROR", subsystem="knowledge")
+                    trace(
+                        "error",
+                        event_source="log_decision",
+                        message=f"Failed to write initial file: {e}",
+                        severity="ERROR",
+                        subsystem="knowledge",
+                    )
                     return {"error": f"Failed to write decision file: {e}"}
             else:
                 try:
@@ -504,15 +650,22 @@ entries_count: 1
                 frontmatter["entries_count"] = str(count)
                 frontmatter["last_modified"] = now_str
 
-                fm_str = "---\n" + "\n".join(f"{k}: {v}" for k, v in frontmatter.items()) + "\n---\n"
+                fm_str = (
+                    "---\n" + "\n".join(f"{k}: {v}" for k, v in frontmatter.items()) + "\n---\n"
+                )
                 main_body_str = main_body.strip()
                 updated_content = fm_str + main_body_str + "\n\n" + new_entry.strip() + "\n"
 
                 try:
                     vault_file.write_text(updated_content, encoding="utf-8")
                 except OSError as e:
-                    trace("error", event_source="log_decision", message=f"Failed to append to file: {e}",
-                          severity="ERROR", subsystem="knowledge")
+                    trace(
+                        "error",
+                        event_source="log_decision",
+                        message=f"Failed to append to file: {e}",
+                        severity="ERROR",
+                        subsystem="knowledge",
+                    )
                     return {"error": f"Failed to update decision file: {e}"}
 
         trace("log_decision", topic=slugified_topic, entry_name=name, subsystem="knowledge")
@@ -532,7 +685,7 @@ entries_count: 1
         Queries Postgres first, falling back to markdown if unavailable.
         To save token window, limits to last N entries by default.
         """
-        slugified_topic = re.sub(r'[^a-zA-Z0-9_-]', '_', topic).lower()
+        slugified_topic = re.sub(r"[^a-zA-Z0-9_-]", "_", topic).lower()
 
         # Try loading from PostgreSQL
         try:
@@ -570,7 +723,10 @@ entries_count: 1
                     f"## [{logged_at}] {entry_name}\n- **Description:** {description}\n{options_str}- **Rationale:** {rationale}"
                 )
 
-            history_text = f"# Decision Log: {slugified_topic.replace('_', ' ').title()}\n\n" + "\n\n".join(history_parts)
+            history_text = (
+                f"# Decision Log: {slugified_topic.replace('_', ' ').title()}\n\n"
+                + "\n\n".join(history_parts)
+            )
             if truncated:
                 history_text += f"\n\n*Note: History truncated. Showing last {limit} of {total_count} entries. Retrieve with full_history=true to view all.*"
 
@@ -583,9 +739,16 @@ entries_count: 1
                 frontmatter["created_at"] = entries_db[0]["logged_at"]
                 frontmatter["last_modified"] = entries_db[-1]["logged_at"]
 
-            trace("get_decision_history", topic=slugified_topic, limit=limit, full_history=full_history,
-                  total_entries=total_count, shown_entries=len(ret_entries),
-                  subsystem="knowledge", source="postgres")
+            trace(
+                "get_decision_history",
+                topic=slugified_topic,
+                limit=limit,
+                full_history=full_history,
+                total_entries=total_count,
+                shown_entries=len(ret_entries),
+                subsystem="knowledge",
+                source="postgres",
+            )
 
             return {
                 "topic": slugified_topic,
@@ -596,9 +759,13 @@ entries_count: 1
             }
 
         except Exception as e:
-            trace("warning", event_source="get_decision_history_db",
-                  message=f"Failed to query decision history from Postgres: {e}. Falling back to Markdown.",
-                  severity="WARNING", subsystem="knowledge")
+            trace(
+                "warning",
+                event_source="get_decision_history_db",
+                message=f"Failed to query decision history from Postgres: {e}. Falling back to Markdown.",
+                severity="WARNING",
+                subsystem="knowledge",
+            )
 
         # Fallback to Markdown
         vault_dir = Path(self._projects_root) / "knowledge_vault"
@@ -611,8 +778,13 @@ entries_count: 1
             try:
                 content = vault_file.read_text(encoding="utf-8", errors="ignore")
             except OSError as e:
-                trace("error", event_source="get_decision_history", message=f"Failed to read file: {e}",
-                      severity="ERROR", subsystem="knowledge")
+                trace(
+                    "error",
+                    event_source="get_decision_history",
+                    message=f"Failed to read file: {e}",
+                    severity="ERROR",
+                    subsystem="knowledge",
+                )
                 return {"error": f"Could not read decision log: {e}"}
 
         frontmatter = {}
@@ -628,12 +800,12 @@ entries_count: 1
                         frontmatter[k.strip()] = v.strip()
 
         # Split main body by entry headers
-        entry_splits = re.split(r'^(## \[[^\]]+\] .*?)$', main_body, flags=re.MULTILINE)
+        entry_splits = re.split(r"^(## \[[^\]]+\] .*?)$", main_body, flags=re.MULTILINE)
         intro = entry_splits[0].strip()
         entries = []
         for i in range(1, len(entry_splits), 2):
             header = entry_splits[i]
-            body = entry_splits[i+1] if i+1 < len(entry_splits) else ""
+            body = entry_splits[i + 1] if i + 1 < len(entry_splits) else ""
             entries.append(header + "\n" + body.strip())
 
         total_count = len(entries)
@@ -649,8 +821,14 @@ entries_count: 1
         if truncated:
             history_text += f"\n\n*Note: History truncated. Showing last {limit} of {total_count} entries. Retrieve with full_history=true to view all.*"
 
-        trace("get_decision_history", topic=slugified_topic, limit=limit, full_history=full_history,
-              subsystem="knowledge", source="markdown")
+        trace(
+            "get_decision_history",
+            topic=slugified_topic,
+            limit=limit,
+            full_history=full_history,
+            subsystem="knowledge",
+            source="markdown",
+        )
 
         return {
             "topic": slugified_topic,
@@ -679,31 +857,56 @@ entries_count: 1
                     """)
                     chunks_data = [
                         {
-                            "id": str(row[0]), "project": row[1], "path": row[2],
-                            "language": row[3], "chunk_type": row[4], "symbol": row[5],
-                            "content": row[6], "start_line": row[7], "end_line": row[8],
-                            "content_hash": row[9], "file_mtime": row[10]
+                            "id": str(row[0]),
+                            "project": row[1],
+                            "path": row[2],
+                            "language": row[3],
+                            "chunk_type": row[4],
+                            "symbol": row[5],
+                            "content": row[6],
+                            "start_line": row[7],
+                            "end_line": row[8],
+                            "content_hash": row[9],
+                            "file_mtime": row[10],
                         }
                         for row in cur.fetchall()
                     ]
         except Exception as e:
-            trace("error", event_source="re_embed", message=f"Failed to fetch chunks from DB: {e}",
-                  severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+            trace(
+                "error",
+                event_source="re_embed",
+                message=f"Failed to fetch chunks from DB: {e}",
+                severity="ERROR",
+                subsystem="knowledge",
+                trace_id=trace_id,
+            )
             return {"error": f"Failed to fetch chunks from database: {e}"}
 
         if not chunks_data:
-            trace("re_embed_complete", message="No chunks found in database", duration_ms=0, subsystem="knowledge", trace_id=trace_id)
+            trace(
+                "re_embed_complete",
+                message="No chunks found in database",
+                duration_ms=0,
+                subsystem="knowledge",
+                trace_id=trace_id,
+            )
             return {"message": "No chunks found in database to re-embed", "chunks_reembedded": 0}
 
         # 2. Reset the Qdrant collection
         try:
-            self._store._ensure_collection() # Ensure it's active/created first
+            self._store._ensure_collection()  # Ensure it's active/created first
             self._store._client.delete_collection(self._store._collection)
             self._store._collection_ready = False
-            self._store._ensure_collection() # Recreate it fresh
+            self._store._ensure_collection()  # Recreate it fresh
         except Exception as e:
-            trace("error", event_source="re_embed", message=f"Failed to reset Qdrant collection: {e}",
-                  severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+            trace(
+                "error",
+                event_source="re_embed",
+                message=f"Failed to reset Qdrant collection: {e}",
+                severity="ERROR",
+                subsystem="knowledge",
+                trace_id=trace_id,
+            )
             return {"error": f"Failed to reset Qdrant collection: {e}"}
 
         # 3. Batch embed the text content and upsert to Qdrant
@@ -715,7 +918,7 @@ entries_count: 1
         from qdrant_client.http import models as qdrant_models
 
         for i in range(0, total_chunks, batch_size):
-            batch = chunks_data[i: i + batch_size]
+            batch = chunks_data[i : i + batch_size]
             batch_num = i // batch_size + 1
             t_batch = time.monotonic()
 
@@ -742,42 +945,63 @@ entries_count: 1
                             "indexed_at": now,
                             "content_hash": c["content_hash"],
                             "file_mtime": c["file_mtime"],
-                        }
+                        },
                     )
                     for c, vec in zip(batch, vectors)
                 ]
 
                 # Upsert to Qdrant
-                self._store._client.upsert(
-                    collection_name=self._store._collection,
-                    points=points
-                )
+                self._store._client.upsert(collection_name=self._store._collection, points=points)
 
                 duration_ms = round((time.monotonic() - t_batch) * 1000)
-                trace("embed_batch", project="all_reembed", batch=batch_num,
-                      total_batches=total_batches, size=len(batch), duration_ms=duration_ms,
-                      subsystem="knowledge", trace_id=trace_id)
+                trace(
+                    "embed_batch",
+                    project="all_reembed",
+                    batch=batch_num,
+                    total_batches=total_batches,
+                    size=len(batch),
+                    duration_ms=duration_ms,
+                    subsystem="knowledge",
+                    trace_id=trace_id,
+                )
 
             except Exception as e:
-                trace("error", event_source="re_embed_batch", batch=batch_num,
-                      message=f"Failed to embed/upsert batch: {e}",
-                      severity="ERROR", subsystem="knowledge", trace_id=trace_id)
+                trace(
+                    "error",
+                    event_source="re_embed_batch",
+                    batch=batch_num,
+                    message=f"Failed to embed/upsert batch: {e}",
+                    severity="ERROR",
+                    subsystem="knowledge",
+                    trace_id=trace_id,
+                )
                 return {"error": f"Failed to embed/upsert batch {batch_num}: {e}"}
 
         duration_ms = round((time.monotonic() - t0) * 1000)
-        trace("re_embed_complete", chunks=total_chunks, duration_ms=duration_ms, subsystem="knowledge", trace_id=trace_id)
+        trace(
+            "re_embed_complete",
+            chunks=total_chunks,
+            duration_ms=duration_ms,
+            subsystem="knowledge",
+            trace_id=trace_id,
+        )
         self._invalidate_projects_cache()
         return {
             "message": f"Successfully re-embedded {total_chunks} chunks using model '{self._store._embedding_model}'",
-            "chunks_reembedded": total_chunks
+            "chunks_reembedded": total_chunks,
         }
 
 
-
-
 _IGNORE_IN_TREE = {
-    ".git", "node_modules", ".venv", "venv", "__pycache__",
-    ".pytest_cache", ".ruff_cache", "dist", "build",
+    ".git",
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    "dist",
+    "build",
 }
 
 

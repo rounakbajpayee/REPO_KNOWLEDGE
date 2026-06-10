@@ -4,7 +4,9 @@ register_startup.py — Configures the OS filewatcher to run silently on Windows
 
 import os
 from pathlib import Path
+
 import click
+
 
 def main():
     click.secho("=== REPO_KNOWLEDGE Windows Startup Configurator ===", fg="cyan", bold=True)
@@ -32,7 +34,7 @@ def main():
         return
 
     bat_path = startup_dir / "start_repo_knowledge_watcher.bat"
-    
+
     bat_content = f"""@echo off
 rem Start REPO_KNOWLEDGE file watcher silently in the background on login
 start /B "" "{pythonw_path}" "{watcher_path}"
@@ -40,11 +42,16 @@ start /B "" "{pythonw_path}" "{watcher_path}"
 
     try:
         bat_path.write_text(bat_content, encoding="utf-8")
-        click.secho(f"\n[OK] Successfully registered silent background filewatcher at startup!", fg="green")
+        click.secho(
+            "\n[OK] Successfully registered silent background filewatcher at startup!", fg="green"
+        )
         click.echo(f"Startup Script Location: {bat_path}")
-        click.echo(f"It will execute silently (no console window) using pythonw.exe on your next Windows login.")
+        click.echo(
+            "It will execute silently (no console window) using pythonw.exe on your next Windows login."
+        )
     except Exception as e:
         click.secho(f"Error writing startup script: {e}", fg="red")
+
 
 if __name__ == "__main__":
     main()
