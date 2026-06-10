@@ -134,8 +134,11 @@ def get_projects():
                 with conn.cursor() as cur:
                     cur.execute("""
                         SELECT p.name, p.stack, p.last_indexed_at,
-                               (SELECT COUNT(*) FROM files f WHERE f.project_id = p.id) as file_count,
-                               (SELECT COUNT(*) FROM chunks c JOIN files f ON c.file_id = f.id WHERE f.project_id = p.id) as chunk_count
+                               (SELECT COUNT(*) FROM files f
+                                WHERE f.project_id = p.id) as file_count,
+                               (SELECT COUNT(*) FROM chunks c
+                                JOIN files f ON c.file_id = f.id
+                                WHERE f.project_id = p.id) as chunk_count
                         FROM projects p;
                     """)
                     for row in cur.fetchall():

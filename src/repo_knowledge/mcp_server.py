@@ -230,8 +230,8 @@ async def list_tools() -> list[types.Tool]:
             name="list_files",
             description=(
                 "List all files in a project. "
-                "Use path_prefix to filter by directory (e.g. 'src/'), extension to filter by type (e.g. '.py'). "
-                "Returns file paths and metadata without content. Use this before get_file to navigate a project."
+                "Use path_prefix to filter by directory (e.g. 'src/'), extension to filter by type (e.g. '.py'). "  # noqa: E501
+                "Returns file paths and metadata without content. Use this before get_file to navigate a project."  # noqa: E501
             ),
             inputSchema={
                 "type": "object",
@@ -246,7 +246,7 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "extension": {
                         "type": "string",
-                        "description": "Optional: filter by file extension (e.g. '.py', or '*' for all)",
+                        "description": "Optional: filter by file extension (e.g. '.py', or '*' for all)",  # noqa: E501
                     },
                 },
                 "required": ["project"],
@@ -256,7 +256,7 @@ async def list_tools() -> list[types.Tool]:
             name="search_symbols",
             description=(
                 "Semantic search returning symbol locations only — no content bodies. "
-                "Use this to find where a function or class is defined, then call get_file to read its implementation. "
+                "Use this to find where a function or class is defined, then call get_file to read its implementation. "  # noqa: E501
                 "Lower token cost than search_codebase for navigation tasks."
             ),
             inputSchema={
@@ -282,8 +282,8 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="get_chunks_for_file",
             description=(
-                "Get the complete symbol map of an indexed file — all functions, classes, and sections with their line ranges. "
-                "Use this to understand a file's structure before deciding which part to read with get_file."
+                "Get the complete symbol map of an indexed file — all functions, classes, and sections with their line ranges. "  # noqa: E501
+                "Use this to understand a file's structure before deciding which part to read with get_file."  # noqa: E501
             ),
             inputSchema={
                 "type": "object",
@@ -317,11 +317,11 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "path": {
                         "type": "string",
-                        "description": "File path relative to project root, e.g. src/auth/service.py",
+                        "description": "File path relative to project root, e.g. src/auth/service.py",  # noqa: E501
                     },
                     "start_line": {
                         "type": "integer",
-                        "description": "Optional: 1-indexed start line number (inclusive) to read from",
+                        "description": "Optional: 1-indexed start line number (inclusive) to read from",  # noqa: E501
                     },
                     "end_line": {
                         "type": "integer",
@@ -352,8 +352,8 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="re_embed",
             description=(
-                "Wipe Qdrant vector database collection and re-embed all code chunks from the PostgreSQL store. "
-                "Call this after updating the embedding model in configuration to rebuild the vector cache "
+                "Wipe Qdrant vector database collection and re-embed all code chunks from the PostgreSQL store. "  # noqa: E501
+                "Call this after updating the embedding model in configuration to rebuild the vector cache "  # noqa: E501
                 "without rescanning or re-parsing the original project files on disk."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
@@ -361,16 +361,16 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="log_decision",
             description=(
-                "Log an architectural, configuration, or dependency decision under a specific topic. "
-                "Call this IMMEDIATELY when a final decision is reached. Do not wait until the end of the session. "
-                "Input includes options considered and final rationale to preserve the decision evolution timeline."
+                "Log an architectural, configuration, or dependency decision under a specific topic. "  # noqa: E501
+                "Call this IMMEDIATELY when a final decision is reached. Do not wait until the end of the session. "  # noqa: E501
+                "Input includes options considered and final rationale to preserve the decision evolution timeline."  # noqa: E501
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "topic": {
                         "type": "string",
-                        "description": "Slugified topic name (e.g. 'embedding_model', 'auth_handling')",
+                        "description": "Slugified topic name (e.g. 'embedding_model', 'auth_handling')",  # noqa: E501
                     },
                     "name": {
                         "type": "string",
@@ -382,11 +382,11 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "rationale": {
                         "type": "string",
-                        "description": "Detailed reasoning explaining why this choice was selected over alternatives.",
+                        "description": "Detailed reasoning explaining why this choice was selected over alternatives.",  # noqa: E501
                     },
                     "options_considered": {
                         "type": "array",
-                        "description": "Optional list of alternatives analyzed during brainstorming.",
+                        "description": "Optional list of alternatives analyzed during brainstorming.",  # noqa: E501
                         "items": {
                             "type": "object",
                             "properties": {
@@ -415,7 +415,7 @@ async def list_tools() -> list[types.Tool]:
             name="get_decision_history",
             description=(
                 "Retrieve the chronological history of decisions logged under a topic. "
-                "By default, returns only the last 3 entries to preserve the agent's context window. "
+                "By default, returns only the last 3 entries to preserve the agent's context window. "  # noqa: E501
                 "Explicitly request full_history=true to fetch the complete chronological timeline."
             ),
             inputSchema={
@@ -423,16 +423,16 @@ async def list_tools() -> list[types.Tool]:
                 "properties": {
                     "topic": {
                         "type": "string",
-                        "description": "Slugified topic name (e.g. 'embedding_model', 'auth_handling')",
+                        "description": "Slugified topic name (e.g. 'embedding_model', 'auth_handling')",  # noqa: E501
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Max entries to return when full_history is false (default: 3).",
+                        "description": "Max entries to return when full_history is false (default: 3).",  # noqa: E501
                         "default": 3,
                     },
                     "full_history": {
                         "type": "boolean",
-                        "description": "Set to true to retrieve all entries. Warning: large histories consume significant tokens.",
+                        "description": "Set to true to retrieve all entries. Warning: large histories consume significant tokens.",  # noqa: E501
                         "default": False,
                     },
                 },

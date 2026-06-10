@@ -336,7 +336,9 @@ class PostgresStore:
                 for chunk, cuuid in zip(chunks, chunk_uuids):
                     cur.execute(
                         """
-                        INSERT INTO chunks (id, file_id, project, path, language, chunk_type, symbol, content, start_line, end_line)
+                        INSERT INTO chunks
+                        (id, file_id, project, path, language,
+                        chunk_type, symbol, content, start_line, end_line)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (id) DO UPDATE
                         SET content = EXCLUDED.content,
@@ -390,7 +392,8 @@ class PostgresStore:
         with self._get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT id, project, path, language, chunk_type, symbol, content, start_line, end_line 
+                    SELECT id, project, path, language,
+                           chunk_type, symbol, content, start_line, end_line
                     FROM chunks;
                 """)
                 return [
@@ -421,7 +424,8 @@ class PostgresStore:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO decision_logs (topic, entry_name, description, rationale, options_considered, logged_at)
+                    INSERT INTO decision_logs
+                    (topic, entry_name, description, rationale, options_considered, logged_at)
                     VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP);
                 """,
                     (
@@ -483,7 +487,8 @@ class PostgresStore:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO audit_logs (ts, trace_id, event, severity, subsystem, duration_ms, payload)
+                    INSERT INTO audit_logs
+                    (ts, trace_id, event, severity, subsystem, duration_ms, payload)
                     VALUES (%s, %s, %s, %s, %s, %s, %s);
                 """,
                     (
@@ -615,7 +620,8 @@ class PostgresStore:
                 execute_values(
                     cur,
                     """
-                    INSERT INTO audit_logs (ts, trace_id, event, severity, subsystem, duration_ms, payload)
+                    INSERT INTO audit_logs
+                    (ts, trace_id, event, severity, subsystem, duration_ms, payload)
                     VALUES %s;
                     """,
                     rows,

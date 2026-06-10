@@ -603,7 +603,7 @@ class KnowledgeService:
                     marker = "[REJECTED]" if opt_status.upper() == "REJECTED" else "[SELECTED]"
                     options_str += f"  - {marker} *{opt_name} ({opt_status}):* {opt_rat}\n"
 
-            new_entry = f"## [{now_str}] {name}\n- **Description:** {description}\n{options_str}- **Rationale:** {rationale}\n"
+            new_entry = f"## [{now_str}] {name}\n- **Description:** {description}\n{options_str}- **Rationale:** {rationale}\n"  # noqa: E501
 
             if not vault_file.exists():
                 initial = f"""---
@@ -720,7 +720,7 @@ entries_count: 1
                         options_str += f"  - {marker} *{opt_name} ({opt_status}):* {opt_rat}\n"
 
                 history_parts.append(
-                    f"## [{logged_at}] {entry_name}\n- **Description:** {description}\n{options_str}- **Rationale:** {rationale}"
+                    f"## [{logged_at}] {entry_name}\n- **Description:** {description}\n{options_str}- **Rationale:** {rationale}"  # noqa: E501
                 )
 
             history_text = (
@@ -728,7 +728,7 @@ entries_count: 1
                 + "\n\n".join(history_parts)
             )
             if truncated:
-                history_text += f"\n\n*Note: History truncated. Showing last {limit} of {total_count} entries. Retrieve with full_history=true to view all.*"
+                history_text += f"\n\n*Note: History truncated. Showing last {limit} of {total_count} entries. Retrieve with full_history=true to view all.*"  # noqa: E501
 
             # Create a mock frontmatter dict
             frontmatter = {
@@ -762,7 +762,7 @@ entries_count: 1
             trace(
                 "warning",
                 event_source="get_decision_history_db",
-                message=f"Failed to query decision history from Postgres: {e}. Falling back to Markdown.",
+                message=f"Failed to query decision history from Postgres: {e}. Falling back to Markdown.",  # noqa: E501
                 severity="WARNING",
                 subsystem="knowledge",
             )
@@ -819,7 +819,7 @@ entries_count: 1
 
         history_text = intro + "\n\n" + "\n\n".join(ret_entries)
         if truncated:
-            history_text += f"\n\n*Note: History truncated. Showing last {limit} of {total_count} entries. Retrieve with full_history=true to view all.*"
+            history_text += f"\n\n*Note: History truncated. Showing last {limit} of {total_count} entries. Retrieve with full_history=true to view all.*"  # noqa: E501
 
         trace(
             "get_decision_history",
@@ -851,7 +851,10 @@ entries_count: 1
             with self._pg._get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
-                        SELECT c.id, c.project, c.path, c.language, c.chunk_type, c.symbol, c.content, c.start_line, c.end_line, f.content_hash, f.file_mtime
+                        SELECT c.id, c.project, c.path, c.language,
+                               c.chunk_type, c.symbol, c.content,
+                               c.start_line, c.end_line,
+                               f.content_hash, f.file_mtime
                         FROM chunks c
                         JOIN files f ON c.file_id = f.id;
                     """)
@@ -987,7 +990,7 @@ entries_count: 1
         )
         self._invalidate_projects_cache()
         return {
-            "message": f"Successfully re-embedded {total_chunks} chunks using model '{self._store._embedding_model}'",
+            "message": f"Successfully re-embedded {total_chunks} chunks using model '{self._store._embedding_model}'",  # noqa: E501
             "chunks_reembedded": total_chunks,
         }
 

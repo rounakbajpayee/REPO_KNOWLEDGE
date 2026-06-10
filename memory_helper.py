@@ -109,10 +109,13 @@ def query_llm(model: str, system_prompt: str, user_prompt: str) -> dict:
         raise RuntimeError(f"Failed to parse JSON block: {e}\nBlock:\n{json_str}")
 
 
-SYSTEM_PROMPT = """You are a software engineering decision archivist. Your job is to extract technical decisions from changes, logs, or transcripts.
+SYSTEM_PROMPT = """You are a software engineering decision archivist.
+Your job is to extract technical decisions from changes,
+logs, or transcripts.
 Analyze the provided information and output a single JSON block representing the decision.
 
-Your output MUST be exactly a JSON object conforming to this schema (do not include markdown wrapping outside the JSON):
+Your output MUST be exactly a JSON object conforming to this schema
+(do not include markdown wrapping outside the JSON):
 {
   "topic": "slugified-topic-name (e.g. 'embedding_model', 'auth_handling')",
   "name": "slugified_entry_name (e.g. 'upgrade_to_qwen')",
@@ -160,7 +163,7 @@ def main(diff: bool, commits: int, transcript: bool, topic: str | None) -> None:
         unstaged_stat = run_git(["diff", "--stat"])
         staged = run_git(["diff", "--cached", "-U1"])
         unstaged = run_git(["diff", "-U1"])
-        source_text += f"=== GIT DIFF STAT ===\n{staged_stat}\n{unstaged_stat}\n\n=== GIT DIFF STAGED ===\n{staged}\n\n=== GIT DIFF UNSTAGED ===\n{unstaged}\n"
+        source_text += f"=== GIT DIFF STAT ===\n{staged_stat}\n{unstaged_stat}\n\n=== GIT DIFF STAGED ===\n{staged}\n\n=== GIT DIFF UNSTAGED ===\n{unstaged}\n"  # noqa: E501
 
     if commits > 0:
         click.echo(f"Gathering the last {commits} commits...")
@@ -199,7 +202,7 @@ def main(diff: bool, commits: int, transcript: bool, topic: str | None) -> None:
                     transcripts.sort(key=lambda p: p.stat().st_mtime, reverse=True)
                     latest_t = transcripts[0]
                     click.echo(
-                        f"  Found latest log: {latest_t.name} (modified: {latest_t.stat().st_mtime})"
+                        f"  Found latest log: {latest_t.name} (modified: {latest_t.stat().st_mtime})"  # noqa: E501
                     )
                     try:
                         # Extract last 100 lines to avoid blowing context

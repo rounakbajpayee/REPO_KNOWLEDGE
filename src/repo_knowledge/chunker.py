@@ -453,7 +453,7 @@ def chunk_file(
         return []
 
     # Skip files with extremely long lines (classic signature of minified code/data blobs).
-    # Programming code files have strict formatting, whereas docs/data files might have longer lines.
+    # Programming code files have strict formatting, whereas docs/data files might have longer lines.  # noqa: E501
     max_line_len = 1000 if suffix in {".py", ".js", ".jsx", ".ts", ".tsx"} else 10000
     if any(len(line) > max_line_len for line in source.splitlines()):
         return []

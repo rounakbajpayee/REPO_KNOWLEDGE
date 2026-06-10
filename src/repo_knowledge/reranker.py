@@ -26,7 +26,7 @@ try:
     import sentence_transformers  # type: ignore[import]
 except ImportError:
     log.warning(
-        "Reranker unavailable: sentence-transformers not installed. Install with: pip install repo-knowledge[reranker]"
+        "Reranker unavailable: sentence-transformers not installed. Install with: pip install repo-knowledge[reranker]"  # noqa: E501
     )
 
 

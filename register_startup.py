@@ -47,7 +47,7 @@ start /B "" "{pythonw_path}" "{watcher_path}"
         )
         click.echo(f"Startup Script Location: {bat_path}")
         click.echo(
-            "It will execute silently (no console window) using pythonw.exe on your next Windows login."
+            "It will execute silently (no console window) using pythonw.exe on your next Windows login."  # noqa: E501
         )
     except Exception as e:
         click.secho(f"Error writing startup script: {e}", fg="red")

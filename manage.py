@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """
-manage.py — Control script to start, stop, restart, or toggle background services (Watcher & Web UI/MCP server).
+manage.py — Control script to start, stop, restart, or toggle
+background services (Watcher & Web UI/MCP server).
 """
 
 import os
@@ -31,7 +32,7 @@ def check_startup_registration():
 
     if not bat_path.exists():
         print(
-            "[INFO] Background watcher is not registered in Windows startup registry. Registering..."
+            "[INFO] Background watcher is not registered in Windows startup registry. Registering..."  # noqa: E501
         )
         try:
             # Run the register_startup.py script
@@ -46,8 +47,8 @@ def check_startup_registration():
 def find_process_by_cmdline(substring):
     """Find the PID of a running python process matching a specific command line substring."""
     try:
-        # Use PowerShell to query process command lines, which works reliably on all Windows 10/11 systems
-        cmd = f"powershell -Command \"Get-CimInstance Win32_Process -Filter \\\"Name='python.exe' or Name='pythonw.exe'\\\" | Where-Object {{ $_.CommandLine -like '*{substring}*' }} | Select-Object -ExpandProperty ProcessId\""
+        # Use PowerShell to query process command lines, which works reliably on all Windows 10/11 systems  # noqa: E501
+        cmd = f"powershell -Command \"Get-CimInstance Win32_Process -Filter \\\"Name='python.exe' or Name='pythonw.exe'\\\" | Where-Object {{ $_.CommandLine -like '*{substring}*' }} | Select-Object -ExpandProperty ProcessId\""  # noqa: E501
         res = subprocess.run(cmd, capture_output=True, text=True, shell=True)
         if res.returncode == 0:
             pids = res.stdout.strip().split()
@@ -158,7 +159,7 @@ def print_status_report():
     watcher_pid, server_pid = get_status()
     print("=== REPO_KNOWLEDGE Service Status ===")
     print(
-        f"Filewatcher:      {'RUNNING (PID: ' + str(watcher_pid) + ')' if watcher_pid else 'STOPPED'}"
+        f"Filewatcher:      {'RUNNING (PID: ' + str(watcher_pid) + ')' if watcher_pid else 'STOPPED'}"  # noqa: E501
     )
     print(
         f"Web UI / MCP:     {'RUNNING (PID: ' + str(server_pid) + ')' if server_pid else 'STOPPED'}"
@@ -192,7 +193,7 @@ def main():
         print(f"Unknown command: {cmd}")
         print("Usage: python manage.py [start|stop|restart|status]")
         print(
-            "If run without arguments, it toggles the services (stops if running, starts if stopped)."
+            "If run without arguments, it toggles the services (stops if running, starts if stopped)."  # noqa: E501
         )
 
 
