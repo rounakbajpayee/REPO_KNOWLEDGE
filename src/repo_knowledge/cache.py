@@ -27,10 +27,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import threading
 from typing import Any
 
 from repo_knowledge.config import REDIS_TTL_S, REDIS_URL
+
+log = logging.getLogger(__name__)
+
+try:
+    import redis  # type: ignore[import]
+except ImportError:
+    log.warning("Cache disabled: redis not installed. Install with: pip install repo-knowledge[cache]")
 
 
 # ── Connection singleton ──────────────────────────────────────────────────────
@@ -58,6 +66,9 @@ def _get_client() -> Any | None:
             r = redis.from_url(REDIS_URL, socket_connect_timeout=2, socket_timeout=2, decode_responses=True)
             r.ping()  # Verify reachability
             _client = r
+        except ImportError:
+            _client_failed = True
+            return None
         except Exception:
             _client_failed = True
             return None
