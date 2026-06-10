@@ -43,8 +43,7 @@ class KnowledgeService:
         self._projects_cache_ts: float = 0.0
         self._projects_cache_lock = threading.Lock()
         self._vault_lock = threading.Lock()
-        from repo_knowledge.postgres_store import PostgresStore
-        self._pg = getattr(self._store, "_pg", None) or PostgresStore()
+        self._pg = self._store._pg
 
 
 
