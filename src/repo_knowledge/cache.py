@@ -68,7 +68,8 @@ def _get_client() -> Any | None:
 
 def _cache_key(query: str, project: str | None, top_k: int) -> str:
     raw = f"{query}||{project or ''}||{top_k}"
-    return "rk:search:" + hashlib.sha256(raw.encode()).hexdigest()[:24]
+    namespace = project or "global"
+    return f"rk:search:{namespace}:" + hashlib.sha256(raw.encode()).hexdigest()[:24]
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -136,13 +137,10 @@ def flush_project(project: str) -> int:
         return 0
     deleted = 0
     try:
-        # We can't reconstruct exact keys, so scan for the namespace prefix
-        # and match on project name embedded in the value (simpler: just flush prefix)
-        # Since keys are hashed, we flush the entire search namespace instead.
-        # For a prod system with millions of queries, a secondary index would be needed.
+        # We scan for the project-specific namespace prefix
         cursor = 0
         while True:
-            cursor, keys = r.scan(cursor, match="rk:search:*", count=200)
+            cursor, keys = r.scan(cursor, match=f"rk:search:{project}:*", count=200)
             if keys:
                 r.delete(*keys)
                 deleted += len(keys)

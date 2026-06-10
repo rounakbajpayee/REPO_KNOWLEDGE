@@ -23,7 +23,7 @@ from repo_knowledge.config import RERANK_MODEL
 # ── Singleton loader ──────────────────────────────────────────────────────────
 
 _model: Any = None          # CrossEncoder instance once loaded
-_model_lock = threading.Lock()
+_init_lock = threading.Lock()
 _model_failed = False       # Set True if import/load fails; skips retries
 
 
@@ -35,7 +35,7 @@ def _load_model() -> Any | None:
     if _model_failed:
         return None
 
-    with _model_lock:
+    with _init_lock:
         if _model is not None:
             return _model
         if _model_failed:
@@ -90,8 +90,7 @@ def rerank(
         return candidates[:top_k]
 
     pairs = [(query, c.get("content", "")) for c in candidates]
-    with _model_lock:
-        scores: list[float] = model.predict(pairs, show_progress_bar=False).tolist()
+    scores: list[float] = model.predict(pairs, show_progress_bar=False).tolist()
 
     # Attach rerank scores and sort descending
     scored = sorted(

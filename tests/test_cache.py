@@ -55,8 +55,11 @@ def test_cache_key_differs_on_different_top_k():
 
 
 def test_cache_key_has_namespace_prefix():
-    k = cache._cache_key("q", None, 5)
-    assert k.startswith("rk:search:")
+    k1 = cache._cache_key("q", None, 5)
+    assert k1.startswith("rk:search:global:")
+
+    k2 = cache._cache_key("q", "PROJ_A", 5)
+    assert k2.startswith("rk:search:PROJ_A:")
 
 
 # ── get_cached ────────────────────────────────────────────────────────────────
