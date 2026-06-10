@@ -62,6 +62,10 @@ python -m repo_knowledge.web_ui.server
 # 8. Post-Mortem Decision Extraction (Optional)
 python memory_helper.py --diff     # reconstructs decisions from workspace git diffs
 
+### Background Services (`manage.py`)
+
+> ⚠️ **Windows only** — manage.py uses Windows-specific tooling (pythonw.exe, PowerShell, registry). Use the Docker path for Linux/macOS.
+
 ### Docker Compose (Recommended)
 You can run the entire service (Postgres, Qdrant, Web UI, Watcher) in Docker.
 ```bash
