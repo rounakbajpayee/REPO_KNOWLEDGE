@@ -14,10 +14,18 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Any
 
 from repo_knowledge.config import RERANK_MODEL
+
+log = logging.getLogger(__name__)
+
+try:
+    import sentence_transformers  # type: ignore[import]
+except ImportError:
+    log.warning("Reranker unavailable: sentence-transformers not installed. Install with: pip install repo-knowledge[reranker]")
 
 
 # ── Singleton loader ──────────────────────────────────────────────────────────
@@ -49,6 +57,9 @@ def _load_model() -> Any | None:
             except Exception:
                 # Fallback to downloading/checking online if not cached locally
                 _model = CrossEncoder(RERANK_MODEL, local_files_only=False)
+        except ImportError:
+            _model_failed = True
+            return None
         except Exception:
             _model_failed = True
             return None
