@@ -6,32 +6,34 @@ TCP handshake overhead that bare psycopg2.connect() incurs over a LAN connection
 Connections are returned to the pool after each operation.
 """
 
-import json
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
+
 import psycopg2
 from psycopg2 import pool as pgpool
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from psycopg2.extras import Json, execute_values
+
 from repo_knowledge.config import (
+    POSTGRES_DB,
     POSTGRES_HOST,
+    POSTGRES_PASSWORD,
     POSTGRES_PORT,
     POSTGRES_USER,
-    POSTGRES_PASSWORD,
-    POSTGRES_DB,
 )
 
 
 class PostgresStore:
     def __init__(
         self,
-        host=POSTGRES_HOST,
-        port=POSTGRES_PORT,
-        user=POSTGRES_USER,
-        password=POSTGRES_PASSWORD,
-        database=POSTGRES_DB,
-    ):
+        host: str = POSTGRES_HOST,
+        port: int = POSTGRES_PORT,
+        user: str = POSTGRES_USER,
+        password: str = POSTGRES_PASSWORD,
+        database: str = POSTGRES_DB,
+    ) -> None:
         self._host = host
         self._port = port
         self._user = user
@@ -228,7 +230,7 @@ class PostgresStore:
                 self._pool = None  # Will fall back to bare connect
 
     @contextmanager
-    def _get_connection(self):
+    def _get_connection(self) -> Iterator[psycopg2.extensions.connection]:
         """Yield a connection from the pool (or a bare connect if pool unavailable)."""
         self._ensure_tables()
         if self._pool is None:
@@ -274,20 +276,26 @@ class PostgresStore:
         """Insert or update project metadata, returning project database ID."""
         with self._get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
+                cur.execute(
+                    """
                     INSERT INTO projects (name, stack, last_indexed_at)
                     VALUES (%s, %s, CURRENT_TIMESTAMP)
                     ON CONFLICT (name) DO UPDATE 
                     SET stack = EXCLUDED.stack, last_indexed_at = CURRENT_TIMESTAMP
                     RETURNING id;
-                """, (name, stack))
+                """,
+                    (name, stack),
+                )
                 return cur.fetchone()[0]
 
-    def register_file(self, project_id: int, path: str, content_hash: str, file_mtime: float) -> int:
+    def register_file(
+        self, project_id: int, path: str, content_hash: str, file_mtime: float
+    ) -> int:
         """Insert or update file hash state, returning file database ID."""
         with self._get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
+                cur.execute(
+                    """
                     INSERT INTO files (project_id, path, content_hash, file_mtime, last_indexed_at)
                     VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
                     ON CONFLICT (project_id, path) DO UPDATE
@@ -295,19 +303,24 @@ class PostgresStore:
                         file_mtime = EXCLUDED.file_mtime,
                         last_indexed_at = CURRENT_TIMESTAMP
                     RETURNING id;
-                """, (project_id, path, content_hash, file_mtime))
+                """,
+                    (project_id, path, content_hash, file_mtime),
+                )
                 return cur.fetchone()[0]
 
     def delete_file(self, project_name: str, path: str) -> None:
         """Delete file and all its associated chunks recursively (via foreign keys)."""
         with self._get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
+                cur.execute(
+                    """
                     DELETE FROM files 
                     WHERE path = %s AND project_id = (
                         SELECT id FROM projects WHERE name = %s
                     );
-                """, (path, project_name))
+                """,
+                    (path, project_name),
+                )
 
     def delete_project(self, project_name: str) -> None:
         """Delete project registry and all associated files/chunks recursively."""
@@ -315,44 +328,64 @@ class PostgresStore:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM projects WHERE name = %s", (project_name,))
 
-    def upsert_chunks(self, file_id: int, project: str, path: str, chunks: list, chunk_uuids: list[str]) -> None:
+    def upsert_chunks(
+        self, file_id: int, project: str, path: str, chunks: list, chunk_uuids: list[str]
+    ) -> None:
         """Save raw chunk text records transactionally in the database."""
         with self._get_connection() as conn:
             with conn.cursor() as cur:
                 for chunk, cuuid in zip(chunks, chunk_uuids):
-                    cur.execute("""
-                        INSERT INTO chunks (id, file_id, project, path, language, chunk_type, symbol, content, start_line, end_line)
+                    cur.execute(
+                        """
+                        INSERT INTO chunks
+                        (id, file_id, project, path, language,
+                        chunk_type, symbol, content, start_line, end_line)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (id) DO UPDATE
                         SET content = EXCLUDED.content,
                             start_line = EXCLUDED.start_line,
                             end_line = EXCLUDED.end_line;
-                    """, (
-                        cuuid, file_id, project, path, chunk.language,
-                        chunk.chunk_type, chunk.symbol, chunk.content,
-                        chunk.start_line, chunk.end_line
-                    ))
+                    """,
+                        (
+                            cuuid,
+                            file_id,
+                            project,
+                            path,
+                            chunk.language,
+                            chunk.chunk_type,
+                            chunk.symbol,
+                            chunk.content,
+                            chunk.start_line,
+                            chunk.end_line,
+                        ),
+                    )
 
     def get_indexed_file_hashes(self, project_name: str) -> dict[str, str]:
         """Return a mapping of {file_path: content_hash} stored in PostgreSQL."""
         with self._get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT path, content_hash 
                     FROM files 
                     WHERE project_id = (SELECT id FROM projects WHERE name = %s);
-                """, (project_name,))
+                """,
+                    (project_name,),
+                )
                 return {row[0]: row[1] for row in cur.fetchall()}
 
     def get_indexed_file_mtimes(self, project_name: str) -> dict[str, float]:
         """Return a mapping of {file_path: file_mtime} stored in PostgreSQL."""
         with self._get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT path, file_mtime 
                     FROM files 
                     WHERE project_id = (SELECT id FROM projects WHERE name = %s);
-                """, (project_name,))
+                """,
+                    (project_name,),
+                )
                 return {row[0]: row[1] for row in cur.fetchall()}
 
     def get_all_chunks(self) -> list[dict]:
@@ -360,28 +393,54 @@ class PostgresStore:
         with self._get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT id, project, path, language, chunk_type, symbol, content, start_line, end_line 
+                    SELECT id, project, path, language,
+                           chunk_type, symbol, content, start_line, end_line
                     FROM chunks;
                 """)
                 return [
                     {
-                        "id": str(row[0]), "project": row[1], "path": row[2],
-                        "language": row[3], "chunk_type": row[4], "symbol": row[5],
-                        "content": row[6], "start_line": row[7], "end_line": row[8]
+                        "id": str(row[0]),
+                        "project": row[1],
+                        "path": row[2],
+                        "language": row[3],
+                        "chunk_type": row[4],
+                        "symbol": row[5],
+                        "content": row[6],
+                        "start_line": row[7],
+                        "end_line": row[8],
                     }
                     for row in cur.fetchall()
                 ]
 
-    def log_decision(self, topic: str, entry_name: str, description: str, rationale: str, options_considered: list | None) -> None:
+    def log_decision(
+        self,
+        topic: str,
+        entry_name: str,
+        description: str,
+        rationale: str,
+        options_considered: list | None,
+    ) -> None:
         """Save a decision card entry in PostgreSQL."""
         with self._get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO decision_logs (topic, entry_name, description, rationale, options_considered, logged_at)
+                cur.execute(
+                    """
+                    INSERT INTO decision_logs
+                    (topic, entry_name, description, rationale, options_considered, logged_at)
                     VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP);
-                """, (topic, entry_name, description, rationale, Json(options_considered) if options_considered else None))
+                """,
+                    (
+                        topic,
+                        entry_name,
+                        description,
+                        rationale,
+                        Json(options_considered) if options_considered else None,
+                    ),
+                )
 
-    def get_decision_history(self, topic: str, limit: int = 3, full_history: bool = False) -> list[dict]:
+    def get_decision_history(
+        self, topic: str, limit: int = 3, full_history: bool = False
+    ) -> list[dict]:
         """Query decision logs from PostgreSQL."""
         query = """
             SELECT topic, entry_name, description, rationale, options_considered, logged_at 
@@ -396,8 +455,12 @@ class PostgresStore:
 
         entries = [
             {
-                "topic": r[0], "name": r[1], "description": r[2],
-                "rationale": r[3], "options_considered": r[4], "logged_at": r[5].isoformat()
+                "topic": r[0],
+                "name": r[1],
+                "description": r[2],
+                "rationale": r[3],
+                "options_considered": r[4],
+                "logged_at": r[5].isoformat(),
             }
             for r in rows
         ]
@@ -405,7 +468,16 @@ class PostgresStore:
             return entries[-limit:]
         return entries
 
-    def log_audit_trace(self, ts_str: str, trace_id: str | None, event: str, severity: str, subsystem: str, duration_ms: int | None, payload: dict | None) -> None:
+    def log_audit_trace(
+        self,
+        ts_str: str,
+        trace_id: str | None,
+        event: str,
+        severity: str,
+        subsystem: str,
+        duration_ms: int | None,
+        payload: dict | None,
+    ) -> None:
         """Insert a system trace record transactionally in PostgreSQL."""
         try:
             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
@@ -414,10 +486,22 @@ class PostgresStore:
 
         with self._get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO audit_logs (ts, trace_id, event, severity, subsystem, duration_ms, payload)
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs
+                    (ts, trace_id, event, severity, subsystem, duration_ms, payload)
                     VALUES (%s, %s, %s, %s, %s, %s, %s);
-                """, (ts, trace_id, event, severity, subsystem, duration_ms, Json(payload) if payload else None))
+                """,
+                    (
+                        ts,
+                        trace_id,
+                        event,
+                        severity,
+                        subsystem,
+                        duration_ms,
+                        Json(payload) if payload else None,
+                    ),
+                )
 
     def list_projects(self) -> list[dict]:
         """Return all projects from database."""
@@ -505,7 +589,6 @@ class PostgresStore:
             for r in rows
         ]
 
-
     def log_audit_traces_batch(self, records: list[dict]) -> None:
         """Bulk-insert multiple audit trace records in a single round-trip.
 
@@ -521,22 +604,25 @@ class PostgresStore:
                 ts = datetime.fromisoformat(rec["ts_str"].replace("Z", "+00:00"))
             except (ValueError, KeyError):
                 ts = datetime.now(timezone.utc)
-            rows.append((
-                ts,
-                rec.get("trace_id"),
-                rec.get("event", ""),
-                rec.get("severity", "INFO"),
-                rec.get("subsystem", "unknown"),
-                rec.get("duration_ms"),
-                Json(rec["payload"]) if rec.get("payload") else None,
-            ))
+            rows.append(
+                (
+                    ts,
+                    rec.get("trace_id"),
+                    rec.get("event", ""),
+                    rec.get("severity", "INFO"),
+                    rec.get("subsystem", "unknown"),
+                    rec.get("duration_ms"),
+                    Json(rec["payload"]) if rec.get("payload") else None,
+                )
+            )
 
         with self._get_connection() as conn:
             with conn.cursor() as cur:
                 execute_values(
                     cur,
                     """
-                    INSERT INTO audit_logs (ts, trace_id, event, severity, subsystem, duration_ms, payload)
+                    INSERT INTO audit_logs
+                    (ts, trace_id, event, severity, subsystem, duration_ms, payload)
                     VALUES %s;
                     """,
                     rows,
@@ -544,8 +630,10 @@ class PostgresStore:
 
     def get_audit_logs(self, limit: int = 100, severity: str | None = None) -> list[dict]:
         """Query the structured trace logs."""
-        query = "SELECT ts, trace_id, event, severity, subsystem, duration_ms, payload FROM audit_logs "
-        params = []
+        query = (
+            "SELECT ts, trace_id, event, severity, subsystem, duration_ms, payload FROM audit_logs "
+        )
+        params: list[str | int] = []
         if severity:
             query += "WHERE severity = %s "
             params.append(severity)
@@ -557,9 +645,13 @@ class PostgresStore:
                 cur.execute(query, tuple(params))
                 return [
                     {
-                        "ts": r[0].isoformat(), "trace_id": r[1], "event": r[2],
-                        "severity": r[3], "subsystem": r[4], "duration_ms": r[5],
-                        "payload": r[6]
+                        "ts": r[0].isoformat(),
+                        "trace_id": r[1],
+                        "event": r[2],
+                        "severity": r[3],
+                        "subsystem": r[4],
+                        "duration_ms": r[5],
+                        "payload": r[6],
                     }
                     for r in cur.fetchall()
                 ]

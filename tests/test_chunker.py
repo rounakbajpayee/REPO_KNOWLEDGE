@@ -1,8 +1,10 @@
-import pytest
 from pathlib import Path
-from repo_knowledge.chunker import chunk_file, chunk_project, Chunk
 
-PY_SOURCE = '''
+import pytest
+
+from repo_knowledge.chunker import chunk_file, chunk_project
+
+PY_SOURCE = """
 import os
 import sys
 
@@ -15,7 +17,7 @@ def bar(x: int) -> int:
 class MyClass:
     def method(self):
         pass
-'''
+"""
 
 MD_SOURCE = """# Title
 
@@ -202,7 +204,7 @@ def test_markdown_long_section_splits_into_blocks(tmp_path):
 
 # ── Issue #3: Import extraction scope ────────────────────────────────────────────
 
-PY_METHOD_IMPORT = '''
+PY_METHOD_IMPORT = """
 import os
 
 def foo():
@@ -211,7 +213,7 @@ def foo():
 
 def bar():
     return os.getcwd()
-'''
+"""
 
 
 def test_python_method_imports_not_in_header(tmp_path):
@@ -223,6 +225,7 @@ def test_python_method_imports_not_in_header(tmp_path):
 
 
 # ── Issue #3: Ignore extensions + egg-info dirs ───────────────────────────────────────────
+
 
 def test_lock_file_returns_no_chunks(tmp_path):
     """package-lock.json (extension .lock after renaming) — .lock files ignored."""
@@ -250,6 +253,7 @@ def test_egg_info_dir_skipped_in_project(tmp_path):
 
 
 # ── Issue #4: content_hash and file_mtime stamping ────────────────────────────
+
 
 def test_chunk_file_stamps_content_hash(tmp_path):
     """Every chunk from a file must carry a non-empty sha256 content_hash."""
@@ -351,30 +355,38 @@ def test_ts_chunking(tmp_path):
 def test_minified_files_ignored_git(tmp_path):
     """Verify that minified files ignored in git are skipped by chunk_project."""
     import subprocess
+
     project_dir = tmp_path / "git_project"
     project_dir.mkdir()
-    
+
     # Init git
     subprocess.run(["git", "init"], cwd=project_dir, capture_output=True, check=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=project_dir, capture_output=True, check=True)
-    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=project_dir, capture_output=True, check=True)
-    
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=project_dir, capture_output=True, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=project_dir,
+        capture_output=True,
+        check=True,
+    )
+
     # Add files
     f1 = project_dir / "main.py"
     f1.write_text("def hello(): pass")
     f2 = project_dir / "bootstrap.min.js"
     f2.write_text("console.log('bootstrap');")
-    
+
     subprocess.run(["git", "add", "main.py"], cwd=project_dir, capture_output=True, check=True)
-    
+
     # Ignore minified files
     (project_dir / ".gitignore").write_text("*.min.js\n")
     subprocess.run(["git", "add", ".gitignore"], cwd=project_dir, capture_output=True, check=True)
-    
+
     # Chunk project
     chunks = chunk_project(project_dir, "PROJ")
     paths = {c.path.replace("\\", "/") for c in chunks}
-    
+
     assert "main.py" in paths
     assert "bootstrap.min.js" not in paths
 
@@ -405,4 +417,3 @@ def test_oversized_and_minified_files_skipped(tmp_path):
     content = "print('hello')\n" * 35000  # 35k * 15 chars ~ 525 KB
     py_huge.write_text(content, encoding="utf-8")
     assert chunk_file(py_huge, tmp_path, "PROJ") == []
-

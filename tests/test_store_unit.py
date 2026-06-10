@@ -4,13 +4,15 @@ test_store_unit.py — Unit tests for Store, all mocked (no real Qdrant).
 Every test patches QdrantClient so these run in CI without infrastructure.
 """
 
-import pytest
-from unittest.mock import MagicMock, call, patch
-from repo_knowledge.store import Store
-from repo_knowledge.chunker import Chunk
+from unittest.mock import MagicMock, patch
 
+import pytest
+
+from repo_knowledge.chunker import Chunk
+from repo_knowledge.store import Store
 
 # ── Helpers ───────────────────────────────────────────────────────────────────────────────
+
 
 def _make_store(mock_client: MagicMock) -> Store:
     """Return a Store whose internal client is fully replaced by a mock."""
@@ -20,7 +22,6 @@ def _make_store(mock_client: MagicMock) -> Store:
     # Mark collection as ready so _ensure_collection is a no-op in tests
     store._collection_ready = True
     return store
-
 
 
 def _make_chunk(
@@ -55,6 +56,7 @@ def _make_record(path: str, content_hash: str) -> MagicMock:
 
 
 # ── upsert_chunks ──────────────────────────────────────────────────────────────────────
+
 
 def test_upsert_chunks_calls_upsert(tmp_path):
     mock_client = MagicMock()
@@ -102,6 +104,7 @@ def test_upsert_chunks_batches_large_input():
 
 # ── delete_project ─────────────────────────────────────────────────────────────────────
 
+
 def test_delete_project_calls_delete_with_filter():
     mock_client = MagicMock()
     store = _make_store(mock_client)
@@ -114,6 +117,7 @@ def test_delete_project_calls_delete_with_filter():
 
 
 # ── delete_file ────────────────────────────────────────────────────────────────────────
+
 
 def test_delete_file_calls_delete_with_project_and_path():
     mock_client = MagicMock()
@@ -137,6 +141,7 @@ def test_delete_file_uses_correct_path_value():
 
 # ── get_indexed_file_hashes ───────────────────────────────────────────────────────────────
 
+
 def test_get_indexed_file_hashes_returns_path_hash_map():
     mock_client = MagicMock()
     store = _make_store(mock_client)
@@ -156,15 +161,18 @@ def test_get_indexed_file_hashes_empty_when_no_files():
     store._pg.get_indexed_file_hashes.assert_called_once_with("PROJ")
 
 
-
 # ── search ─────────────────────────────────────────────────────────────────────────────────
+
 
 def _make_hit(score: float, content_hash: str = "", path: str = "src/a.py") -> MagicMock:
     hit = MagicMock()
     hit.score = score
     hit.payload = {
-        "project": "PROJ", "path": path, "symbol": "foo",
-        "content": "def foo(): pass", "chunk_type": "function",
+        "project": "PROJ",
+        "path": path,
+        "symbol": "foo",
+        "content": "def foo(): pass",
+        "chunk_type": "function",
         "content_hash": content_hash,
     }
     return hit
@@ -231,6 +239,7 @@ def test_search_scores_are_rounded():
     results = store.search([0.1] * 10, top_k=5)
     assert results[0]["score"] == round(0.912345, 4)
 
+
 def test_get_chunks_for_path_uses_path_filter():
     mock_client = MagicMock()
     store = _make_store(mock_client)
@@ -240,7 +249,6 @@ def test_get_chunks_for_path_uses_path_filter():
     kwargs = mock_client.scroll.call_args.kwargs
     filter_obj = kwargs["scroll_filter"]
     assert len(filter_obj.must) == 2
-
 
     keys = {cond.key for cond in filter_obj.must}
     assert "project" in keys
@@ -254,6 +262,7 @@ def test_get_chunks_for_path_uses_path_filter():
 
 
 # ── list_projects ──────────────────────────────────────────────────────────────────────
+
 
 def test_list_projects_uses_postgres_primary():
     """list_projects must query Postgres first and skip Qdrant scroll when data exists."""

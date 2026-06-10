@@ -24,3 +24,10 @@ line-ending = "auto"
 reranker = ["sentence-transformers"]
 cache = ["redis"]
 full = ["sentence-transformers", "redis"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true

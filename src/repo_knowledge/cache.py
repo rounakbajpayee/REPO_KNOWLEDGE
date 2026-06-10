@@ -36,16 +36,18 @@ from repo_knowledge.config import REDIS_TTL_S, REDIS_URL
 log = logging.getLogger(__name__)
 
 try:
-    import redis  # type: ignore[import]
+    import redis  # type: ignore[import]  # noqa: F401
 except ImportError:
-    log.warning("Cache disabled: redis not installed. Install with: pip install repo-knowledge[cache]")
+    log.warning(
+        "Cache disabled: redis not installed. Install with: pip install repo-knowledge[cache]"
+    )
 
 
 # ── Connection singleton ──────────────────────────────────────────────────────
 
-_client: Any = None          # redis.Redis instance once connected
+_client: Any = None  # redis.Redis instance once connected
 _client_lock = threading.Lock()
-_client_failed = False       # Set True after a failed init; skips retries until restart
+_client_failed = False  # Set True after a failed init; skips retries until restart
 
 
 def _get_client() -> Any | None:
@@ -63,7 +65,10 @@ def _get_client() -> Any | None:
             return None
         try:
             import redis  # type: ignore[import]
-            r = redis.from_url(REDIS_URL, socket_connect_timeout=2, socket_timeout=2, decode_responses=True)
+
+            r = redis.from_url(
+                REDIS_URL, socket_connect_timeout=2, socket_timeout=2, decode_responses=True
+            )
             r.ping()  # Verify reachability
             _client = r
         except ImportError:
@@ -77,6 +82,7 @@ def _get_client() -> Any | None:
 
 # ── Key derivation ────────────────────────────────────────────────────────────
 
+
 def _cache_key(query: str, project: str | None, top_k: int) -> str:
     raw = f"{query}||{project or ''}||{top_k}"
     namespace = project or "global"
@@ -84,6 +90,7 @@ def _cache_key(query: str, project: str | None, top_k: int) -> str:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def get_cached(query: str, project: str | None, top_k: int) -> list[dict] | None:
     """
