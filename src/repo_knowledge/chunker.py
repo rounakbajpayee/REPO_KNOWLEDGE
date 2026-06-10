@@ -112,14 +112,14 @@ def _get_ts_parser(language: str) -> Parser | None:
             if hasattr(tsts, "language_typescript"):
                 lang = Language(tsts.language_typescript())
             else:
-                lang = Language(tsts.language())
+                lang = Language(tsts.language())  # type: ignore[attr-defined]
         else:
             import tree_sitter_javascript as tsjs
 
             if hasattr(tsjs, "language_javascript"):
                 lang = Language(tsjs.language_javascript())
             else:
-                lang = Language(tsjs.language())
+                lang = Language(tsjs.language())  # type: ignore[attr-defined]
 
         parser = Parser(lang)
         return parser
