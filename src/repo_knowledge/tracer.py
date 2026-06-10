@@ -126,7 +126,7 @@ def new_trace_id() -> str:
     return secrets.token_hex(4)  # 4 bytes → 8 hex chars
 
 
-import contextvars
+import contextvars  # noqa: E402
 
 _trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("trace_id", default=None)
 

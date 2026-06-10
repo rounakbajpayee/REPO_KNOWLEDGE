@@ -23,7 +23,7 @@ from repo_knowledge.config import RERANK_MODEL
 log = logging.getLogger(__name__)
 
 try:
-    import sentence_transformers  # type: ignore[import]
+    import sentence_transformers  # type: ignore[import]  # noqa: F401
 except ImportError:
     log.warning(
         "Reranker unavailable: sentence-transformers not installed. Install with: pip install repo-knowledge[reranker]"  # noqa: E501

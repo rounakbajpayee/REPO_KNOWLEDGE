@@ -36,7 +36,7 @@ from repo_knowledge.config import REDIS_TTL_S, REDIS_URL
 log = logging.getLogger(__name__)
 
 try:
-    import redis  # type: ignore[import]
+    import redis  # type: ignore[import]  # noqa: F401
 except ImportError:
     log.warning(
         "Cache disabled: redis not installed. Install with: pip install repo-knowledge[cache]"

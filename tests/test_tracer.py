@@ -28,7 +28,7 @@ def _reload_tracer(tmp_path: Path):
     while not tracer_mod._queue.empty():
         try:
             tracer_mod._queue.get_nowait()
-        except:
+        except Exception:
             break
     tracer_mod._LOG_DIR = tmp_path
     tracer_mod._LOG_PATH = tmp_path / "repo_knowledge.jsonl"
@@ -62,7 +62,7 @@ def test_trace_writes_jsonl_line(tmp_path: Path) -> None:
 
     log_file = tmp_path / "repo_knowledge.jsonl"
     assert log_file.exists(), "Log file was not created"
-    lines = [l for l in log_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+    lines = [line for line in log_file.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(lines) >= 1
     record = json.loads(lines[-1])
 

@@ -105,7 +105,7 @@ class Store:
             stack = "Python"
             langs = [c.language for c in chunks if c.language]
             # Ignore markdown and text if there are other languages present
-            filtered_langs = [l for l in langs if l.lower() not in {"markdown", "text"}]
+            filtered_langs = [lang for lang in langs if lang.lower() not in {"markdown", "text"}]
             if filtered_langs:
                 stack_lang = max(set(filtered_langs), key=filtered_langs.count)
             elif langs:
@@ -398,9 +398,6 @@ def _rrf_fuse(
 
     Returns: sorted list of (chunk_id, rrf_score) descending.
     """
-    n_qdrant = len(qdrant_by_id)
-    n_bm25 = len(bm25_by_id)
-
     # Build rank lookup (0-indexed → 1-indexed below)
     qdrant_ranks = {cid: d["_qdrant_rank"] for cid, d in qdrant_by_id.items()}
     bm25_ranks = {cid: d["_bm25_rank"] for cid, d in bm25_by_id.items()}
