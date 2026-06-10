@@ -45,15 +45,61 @@ _LOG_DIR = Path(__file__).resolve().parent.parent.parent / "logs"
 _LOG_PATH = _LOG_DIR / "repo_knowledge.jsonl"
 
 # ── Background writer ─────────────────────────────────────────────────────────
+# The JSONL write queue. The writer thread drains this quickly (no I/O blocking).
+# A separate DB-flush thread handles Postgres batching so slow/absent Postgres
+# never stalls the main writer loop.
 _queue: queue.Queue[str] = queue.Queue()
+
+# Separate queue feeding the Postgres batch-flush thread.
+_db_queue: queue.Queue[dict] = queue.Queue()
 
 # Batch flush parameters
 _BATCH_MAX = 50  # max records per DB flush
-_BATCH_TIMEOUT = 0.2  # seconds to wait before flushing a partial batch
+_BATCH_TIMEOUT = 0.5  # seconds to wait before flushing a partial batch
 
 
 def _writer_loop() -> None:
-    """Drain the queue, write to JSONL and batch-flush to PostgreSQL. Never dies."""
+    """Drain _queue and write each record to JSONL. Never touches Postgres.
+
+    Parsed records are forwarded to _db_queue for the DB flush thread.
+    This loop must never block on I/O that could be slow or absent (e.g. Postgres).
+    """
+    while True:
+        try:
+            line = _queue.get(timeout=0.05)
+        except queue.Empty:
+            continue
+
+        # Write to JSONL log file immediately.
+        try:
+            _LOG_DIR.mkdir(parents=True, exist_ok=True)
+            with _LOG_PATH.open("a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+        except OSError:
+            pass
+
+        # Forward parsed record to the DB flush thread (non-blocking).
+        try:
+            record = json.loads(line)
+            _db_queue.put_nowait(
+                {
+                    "ts_str": record["ts"],
+                    "trace_id": record.get("trace_id"),
+                    "event": record["event"],
+                    "severity": record.get("severity", "INFO"),
+                    "subsystem": record.get("subsystem", "unknown"),
+                    "duration_ms": record.get("duration_ms"),
+                    "payload": record.get("payload"),
+                }
+            )
+        except Exception:
+            pass
+
+
+def _db_flush_loop() -> None:
+    """Batch-flush parsed records to Postgres. May block on network I/O; that is fine
+    because this loop never touches _queue, so the JSONL writer is never stalled.
+    """
     from repo_knowledge.postgres_store import PostgresStore
 
     pg: PostgresStore | None = None
@@ -62,41 +108,15 @@ def _writer_loop() -> None:
     except Exception:
         pass
 
-    pending: list[dict] = []  # accumulates parsed records for batch DB flush
+    pending: list[dict] = []
     last_flush = time.monotonic()
 
     while True:
-        # Block briefly so we can flush even without new items arriving
         try:
-            line = _queue.get(timeout=_BATCH_TIMEOUT)
+            record = _db_queue.get(timeout=_BATCH_TIMEOUT)
+            pending.append(record)
         except queue.Empty:
-            line = None
-
-        if line is not None:
-            # 1. Write to JSONL log file (always, immediately)
-            try:
-                _LOG_DIR.mkdir(parents=True, exist_ok=True)
-                with _LOG_PATH.open("a", encoding="utf-8") as fh:
-                    fh.write(line + "\n")
-            except OSError:
-                pass
-
-            # 2. Accumulate for DB batch
-            try:
-                record = json.loads(line)
-                pending.append(
-                    {
-                        "ts_str": record["ts"],
-                        "trace_id": record.get("trace_id"),
-                        "event": record["event"],
-                        "severity": record.get("severity", "INFO"),
-                        "subsystem": record.get("subsystem", "unknown"),
-                        "duration_ms": record.get("duration_ms"),
-                        "payload": record.get("payload"),
-                    }
-                )
-            except Exception:
-                pass
+            pass
 
         now = time.monotonic()
         should_flush = len(pending) >= _BATCH_MAX or (
@@ -117,6 +137,9 @@ def _writer_loop() -> None:
 
 _writer_thread = threading.Thread(target=_writer_loop, daemon=True, name="tracer-writer")
 _writer_thread.start()
+
+_db_flush_thread = threading.Thread(target=_db_flush_loop, daemon=True, name="tracer-db-flush")
+_db_flush_thread.start()
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
