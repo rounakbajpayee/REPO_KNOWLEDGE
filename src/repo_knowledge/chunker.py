@@ -98,7 +98,10 @@ def _chunk_python(source: str, rel_path: str, project: str) -> list[Chunk]:
 
 
 # ── JS/TS AST chunker ───────────────────────────────────────────────────────
-from tree_sitter import Language, Parser  # noqa: E402 — must follow conditional tree-sitter loader block
+from tree_sitter import (  # noqa: E402 — must follow conditional tree-sitter loader block
+    Language,
+    Parser,
+)
 
 
 def _get_ts_parser(language: str) -> Parser | None:
