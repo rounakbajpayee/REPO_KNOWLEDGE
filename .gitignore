@@ -1,16 +1,28 @@
+# Environments
 .env
 .venv
-venv
+venv/
+env/
+
+# Python caching and compiled files
 __pycache__/
 *.py[cod]
-*.egg-info/
+*.pyo
+*.pyd
+
+# Build artifacts
 dist/
 build/
+*.egg-info/
+
+# Testing and analysis cache
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.coverage
+
+# Logs and local state
 *.log
 *.jsonl
 logs/
 scratch/
-
-.coverage
