@@ -22,8 +22,8 @@ from pathlib import Path
 try:
     from tree_sitter import Language, Parser
 except ImportError:
-    Language = None
-    Parser = None
+    Language = None  # type: ignore[assignment,misc]
+    Parser = None  # type: ignore[assignment,misc]
 
 from repo_knowledge.config import IGNORE_EXTENSIONS, SUPPORTED_EXTENSIONS
 
