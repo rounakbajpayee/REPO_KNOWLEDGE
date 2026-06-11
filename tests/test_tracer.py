@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import queue
-import time
 from pathlib import Path
 
 import pytest
@@ -41,13 +40,25 @@ def _reload_tracer(tmp_path: Path):
 
 def _drain(tracer_mod, timeout: float = 5.0) -> None:
     """Block until the background writer queue is empty (or timeout)."""
-    deadline = time.monotonic() + timeout
-    while not tracer_mod._queue.empty():
-        if time.monotonic() > deadline:
+    import queue
+    import threading
+    event = threading.Event()
+    original_get = tracer_mod._queue.get
+
+    def hooked_get(*args, **kwargs):
+        try:
+            return original_get(*args, **kwargs)
+        except queue.Empty:
+            event.set()
+            raise
+
+    tracer_mod._queue.get = hooked_get
+
+    try:
+        if not event.wait(timeout=timeout):
             raise TimeoutError("Tracer queue did not drain within timeout")
-        time.sleep(0.005)
-    # One extra sleep so the writer thread finishes its current file write.
-    time.sleep(0.1)
+    finally:
+        tracer_mod._queue.get = original_get
 
 
 # ---------------------------------------------------------------------------
