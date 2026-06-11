@@ -33,12 +33,15 @@ class PostgresStore:
         user: str = POSTGRES_USER,
         password: str = POSTGRES_PASSWORD,
         database: str = POSTGRES_DB,
+        *,
+        connection: psycopg2.extensions.connection | None = None,
     ) -> None:
         self._host = host
         self._port = port
         self._user = user
         self._password = password
         self._db = database
+        self._injected_connection = connection
         self._initialized = False
         self._pool: pgpool.ThreadedConnectionPool | None = None
         self._pool_lock = threading.Lock()
@@ -152,6 +155,10 @@ class PostgresStore:
     @contextmanager
     def _get_connection(self) -> Iterator[psycopg2.extensions.connection]:
         """Yield a connection from the pool (or a bare connect if pool unavailable)."""
+        if self._injected_connection is not None:
+            yield self._injected_connection
+            return
+
         self._ensure_tables()
         if self._pool is None:
             self._init_pool()
