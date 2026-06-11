@@ -151,10 +151,46 @@ def get_projects():
     except Exception as e:
         logger.warning(f"Could not retrieve PostgreSQL project statistics: {e}")
 
+    # Query language statistics from PostgreSQL
+    lang_stats = {}
+    try:
+        if svc._pg.health_check():
+            with svc._pg._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT p.name, c.language, COUNT(*)
+                        FROM chunks c
+                        JOIN files f ON c.file_id = f.id
+                        JOIN projects p ON f.project_id = p.id
+                        WHERE c.language IS NOT NULL AND c.language != ''
+                        GROUP BY p.name, c.language;
+                    """)
+                    for row in cur.fetchall():
+                        proj_name = row[0]
+                        lang = row[1]
+                        count = row[2]
+                        if proj_name not in lang_stats:
+                            lang_stats[proj_name] = {}
+                        lang_stats[proj_name][lang] = count
+    except Exception as e:
+        logger.warning(f"Could not retrieve PostgreSQL language statistics: {e}")
+
     results = []
     for proj in scanned:
         name = proj["name"]
         stats = pg_stats.get(name, {})
+
+        langs = lang_stats.get(name, {})
+        total_chunks = sum(langs.values())
+        lang_pcts = {}
+        if total_chunks > 0:
+            lang_pcts = {
+                lang: round((count / total_chunks) * 100, 1)
+                for lang, count in langs.items()
+            }
+            # sort by percentage descending
+            lang_pcts = dict(sorted(lang_pcts.items(), key=lambda item: item[1], reverse=True))
+
         results.append(
             {
                 "name": name,
@@ -163,6 +199,7 @@ def get_projects():
                 "last_indexed_at": stats.get("last_indexed_at"),
                 "file_count": stats.get("file_count") or 0,
                 "chunk_count": stats.get("chunk_count") or 0,
+                "languages": lang_pcts,
             }
         )
 
