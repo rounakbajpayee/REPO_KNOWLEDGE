@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import queue
-import time
 from pathlib import Path
 
 import pytest
@@ -41,8 +40,8 @@ def _reload_tracer(tmp_path: Path):
 
 def _drain(tracer_mod, timeout: float = 5.0) -> None:
     """Block until the background writer queue is empty (or timeout)."""
-    import threading
     import queue
+    import threading
     event = threading.Event()
     original_get = tracer_mod._queue.get
 
