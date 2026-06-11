@@ -5,26 +5,33 @@ import pytest
 
 from repo_knowledge.postgres_store import PostgresStore
 
+# Defaults match the postgres service defined in .github/workflows/ci.yml.
+# Override via env vars for local development.
+_PG_HOST = os.getenv("POSTGRES_HOST", "localhost")
+_PG_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+_PG_USER = os.getenv("POSTGRES_USER", "postgres")
+_PG_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
+_PG_DB = os.getenv("POSTGRES_DB", "repo_knowledge_test")
+
 
 @pytest.fixture(scope="session")
 def pg_connection():
     conn = psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        user=os.getenv("POSTGRES_USER", "postgres"),
-        password=os.getenv("POSTGRES_PASSWORD", ""),
-        database=os.getenv("POSTGRES_DB", "repo_knowledge_test"),
+        host=_PG_HOST,
+        port=_PG_PORT,
+        user=_PG_USER,
+        password=_PG_PASSWORD,
+        database=_PG_DB,
     )
     conn.autocommit = False
 
-    # Run migrations via a fresh store instance (not using the injected connection)
-    # so that the test DB schema is set up before any tests run.
+    # Run migrations once for the session via a fresh store instance.
     store = PostgresStore(
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        user=os.getenv("POSTGRES_USER", "postgres"),
-        password=os.getenv("POSTGRES_PASSWORD", ""),
-        database=os.getenv("POSTGRES_DB", "repo_knowledge_test"),
+        host=_PG_HOST,
+        port=_PG_PORT,
+        user=_PG_USER,
+        password=_PG_PASSWORD,
+        database=_PG_DB,
     )
     store._ensure_tables()
 
