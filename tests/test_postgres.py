@@ -31,7 +31,8 @@ def mock_connect():
             yield mock_conn_fn, mock_conn, mock_cursor
 
 
-def test_get_project_names(mock_connect):
+@patch("alembic.command.upgrade")
+def test_get_project_names(mock_command, mock_connect):
     """get_project_names must return only the name column."""
     mock_conn_fn, mock_conn, mock_cursor = mock_connect
     mock_cursor.fetchall.return_value = [("AI_LAB",), ("APRIL",), ("ECHO",)]
@@ -44,7 +45,8 @@ def test_get_project_names(mock_connect):
     assert "SELECT name FROM projects" in exec_args[0]
 
 
-def test_log_audit_traces_batch_empty_is_noop(mock_connect):
+@patch("alembic.command.upgrade")
+def test_log_audit_traces_batch_empty_is_noop(mock_command, mock_connect):
     """log_audit_traces_batch must be a no-op when given an empty list."""
     mock_conn_fn, mock_conn, mock_cursor = mock_connect
 
@@ -57,7 +59,8 @@ def test_log_audit_traces_batch_empty_is_noop(mock_connect):
     assert not any("INSERT INTO audit_logs" in e for e in executed)
 
 
-def test_log_audit_traces_batch_inserts_rows(mock_connect):
+@patch("alembic.command.upgrade")
+def test_log_audit_traces_batch_inserts_rows(mock_command, mock_connect):
     """log_audit_traces_batch must call execute_values with all records."""
     mock_conn_fn, mock_conn, mock_cursor = mock_connect
 
@@ -107,28 +110,24 @@ def test_postgres_store_initialization(mock_connect):
     assert store._db == "test_db"
 
 
-def test_ensure_tables_runs_migrations(mock_connect):
+@patch("alembic.command.upgrade")
+def test_ensure_tables_runs_migrations(mock_command, mock_connect):
     mock_conn_fn, mock_conn, mock_cursor = mock_connect
 
     store = PostgresStore()
 
-    # Trigger database connection and DDL query execution
+    # Trigger database connection and migration query execution
     store._ensure_tables()
 
     assert store._initialized
-    # Verify that psycopg2.connect was called (once for checking DB, once for ensure tables)
-    assert mock_conn_fn.call_count >= 2
 
-    # Verify cursor executed CREATE TABLE statements
-    executed_sql = [call[0][0].strip().lower() for call in mock_cursor.execute.call_args_list]
-    assert any("create table if not exists projects" in sql for sql in executed_sql)
-    assert any("create table if not exists files" in sql for sql in executed_sql)
-    assert any("create table if not exists chunks" in sql for sql in executed_sql)
-    assert any("create table if not exists decision_logs" in sql for sql in executed_sql)
-    assert any("create table if not exists audit_logs" in sql for sql in executed_sql)
+    # Check that alembic upgrade head was called
+    assert mock_command.called
+    assert mock_command.call_args[0][1] == "head"
 
 
-def test_upsert_project(mock_connect):
+@patch("alembic.command.upgrade")
+def test_upsert_project(mock_command, mock_connect):
     mock_conn_fn, mock_conn, mock_cursor = mock_connect
     mock_cursor.fetchone.return_value = (42,)
 
@@ -142,7 +141,8 @@ def test_upsert_project(mock_connect):
     assert exec_args[1] == ("my_proj", "Python")
 
 
-def test_register_file(mock_connect):
+@patch("alembic.command.upgrade")
+def test_register_file(mock_command, mock_connect):
     mock_conn_fn, mock_conn, mock_cursor = mock_connect
     mock_cursor.fetchone.return_value = (101,)
 
@@ -155,7 +155,8 @@ def test_register_file(mock_connect):
     assert exec_args[1] == (42, "src/main.py", "hash123", 12345.6)
 
 
-def test_delete_file(mock_connect):
+@patch("alembic.command.upgrade")
+def test_delete_file(mock_command, mock_connect):
     mock_conn_fn, mock_conn, mock_cursor = mock_connect
 
     store = PostgresStore()
@@ -166,7 +167,8 @@ def test_delete_file(mock_connect):
     assert exec_args[1] == ("src/main.py", "my_proj")
 
 
-def test_upsert_chunks(mock_connect):
+@patch("alembic.command.upgrade")
+def test_upsert_chunks(mock_command, mock_connect):
     mock_conn_fn, mock_conn, mock_cursor = mock_connect
 
     class FakeChunk:
@@ -201,7 +203,8 @@ def test_upsert_chunks(mock_connect):
     )
 
 
-def test_get_indexed_file_hashes(mock_connect):
+@patch("alembic.command.upgrade")
+def test_get_indexed_file_hashes(mock_command, mock_connect):
     mock_conn_fn, mock_conn, mock_cursor = mock_connect
     mock_cursor.fetchall.return_value = [
         ("src/main.py", "hash_main"),
@@ -217,7 +220,8 @@ def test_get_indexed_file_hashes(mock_connect):
     assert exec_args[1] == ("my_proj",)
 
 
-def test_log_decision(mock_connect):
+@patch("alembic.command.upgrade")
+def test_log_decision(mock_command, mock_connect):
     mock_conn_fn, mock_conn, mock_cursor = mock_connect
 
     store = PostgresStore()
@@ -239,7 +243,8 @@ def test_log_decision(mock_connect):
     assert exec_args[1][4].adapted == [{"name": "mxbai", "status": "REJECTED"}]
 
 
-def test_get_decision_history(mock_connect):
+@patch("alembic.command.upgrade")
+def test_get_decision_history(mock_command, mock_connect):
     mock_conn_fn, mock_conn, mock_cursor = mock_connect
     now = datetime.now(timezone.utc)
     mock_cursor.fetchall.return_value = [
