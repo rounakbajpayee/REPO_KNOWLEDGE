@@ -342,6 +342,83 @@
             font-family: var(--font-mono);
             font-size: 0.8rem;
             border: 1px solid var(--border-subtle);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .lang-cell {
+            position: relative;
+            display: inline-block;
+        }
+
+        .lang-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        .lang-tooltip {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 0.5rem;
+            background-color: var(--bg-surface-elevated);
+            border: 1px solid var(--border-color);
+            border-radius: 0.4rem;
+            padding: 0.8rem;
+            min-width: 200px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            z-index: 100;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 150ms ease, visibility 150ms ease;
+            pointer-events: none;
+        }
+
+        .lang-cell:hover .lang-tooltip {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .lang-bar {
+            display: flex;
+            height: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 0.8rem;
+            background-color: var(--bg-surface);
+        }
+
+        .lang-bar-segment {
+            height: 100%;
+        }
+
+        .lang-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+        }
+
+        .lang-list-item {
+            display: flex;
+            align-items: center;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            gap: 0.4rem;
+            white-space: nowrap;
+        }
+
+        .lang-list-item .lang-dot {
+            width: 8px;
+            height: 8px;
+        }
+
+        .lang-list-item .lang-name {
+            font-weight: 500;
+            flex-grow: 1;
         }
 
         /* Search Sandbox inputs styling */
@@ -1179,6 +1256,27 @@
                     return;
                 }
 
+                const githubColors = {
+                    "Python": "#3572A5",
+                    "JavaScript": "#f1e05a",
+                    "TypeScript": "#3178c6",
+                    "Go": "#00ADD8",
+                    "Rust": "#dea584",
+                    "Java": "#b07219",
+                    "Ruby": "#701516",
+                    "Shell": "#89e051",
+                    "YAML": "#cb171e",
+                    "Markdown": "#083fa1",
+                    "HTML": "#e34c26",
+                    "CSS": "#563d7c",
+                    "C": "#555555",
+                    "C++": "#f34b7d",
+                    "C#": "#178600",
+                    "PHP": "#4F5D95"
+                };
+
+                const getLangColor = (lang) => githubColors[lang] || "#8b949e";
+
                 tableBody.innerHTML = '';
                 projects.forEach(p => {
                     const row = document.createElement('tr');
@@ -1193,10 +1291,79 @@
                     cellName.appendChild(nameBtn);
                     
                     const cellStack = document.createElement('td');
+                    const langCellDiv = document.createElement('div');
+                    langCellDiv.className = 'lang-cell';
+
                     const stackSpan = document.createElement('span');
                     stackSpan.className = 'stack-badge';
-                    stackSpan.textContent = p.stack;
-                    cellStack.appendChild(stackSpan);
+
+                    // Build languages
+                    if (p.languages && Object.keys(p.languages).length > 0) {
+                        const langs = Object.entries(p.languages);
+                        const primaryLang = langs[0][0];
+                        const primaryColor = getLangColor(primaryLang);
+
+                        const dotSpan = document.createElement('span');
+                        dotSpan.className = 'lang-dot';
+                        dotSpan.style.backgroundColor = primaryColor;
+                        dotSpan.setAttribute('aria-label', primaryLang);
+
+                        const textNode = document.createTextNode(primaryLang);
+                        stackSpan.appendChild(dotSpan);
+                        stackSpan.appendChild(textNode);
+
+                        // Tooltip
+                        const tooltipDiv = document.createElement('div');
+                        tooltipDiv.className = 'lang-tooltip';
+
+                        const barDiv = document.createElement('div');
+                        barDiv.className = 'lang-bar';
+
+                        const listDiv = document.createElement('div');
+                        listDiv.className = 'lang-list';
+
+                        langs.forEach(([lang, pct]) => {
+                            const color = getLangColor(lang);
+
+                            // Bar segment
+                            const segment = document.createElement('div');
+                            segment.className = 'lang-bar-segment';
+                            segment.style.backgroundColor = color;
+                            segment.style.width = `${pct}%`;
+                            barDiv.appendChild(segment);
+
+                            // List item
+                            const listItem = document.createElement('div');
+                            listItem.className = 'lang-list-item';
+
+                            const itemDot = document.createElement('span');
+                            itemDot.className = 'lang-dot';
+                            itemDot.style.backgroundColor = color;
+                            itemDot.setAttribute('aria-label', lang);
+
+                            const itemName = document.createElement('span');
+                            itemName.className = 'lang-name';
+                            itemName.textContent = lang;
+
+                            const itemPct = document.createElement('span');
+                            itemPct.textContent = `${pct}%`;
+
+                            listItem.appendChild(itemDot);
+                            listItem.appendChild(itemName);
+                            listItem.appendChild(itemPct);
+                            listDiv.appendChild(listItem);
+                        });
+
+                        tooltipDiv.appendChild(barDiv);
+                        tooltipDiv.appendChild(listDiv);
+                        langCellDiv.appendChild(stackSpan);
+                        langCellDiv.appendChild(tooltipDiv);
+                    } else {
+                        stackSpan.textContent = p.stack;
+                        langCellDiv.appendChild(stackSpan);
+                    }
+
+                    cellStack.appendChild(langCellDiv);
 
                     const cellFiles = document.createElement('td');
                     cellFiles.textContent = p.indexed ? `${p.file_count} files` : '--';

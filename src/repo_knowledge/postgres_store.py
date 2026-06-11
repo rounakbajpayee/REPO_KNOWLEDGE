@@ -74,114 +74,34 @@ class PostgresStore:
         self._create_database_if_not_exists()
 
         try:
-            conn = psycopg2.connect(
-                host=self._host,
-                port=self._port,
-                user=self._user,
-                password=self._password,
-                database=self._db,
-                connect_timeout=5,
-            )
+            # We don't import at module level to avoid failure if alembic is not installed
+            import os
+
+            from alembic.config import Config
+
+            from alembic import command  # type: ignore[attr-defined]
+        except ImportError as e:
+            raise RuntimeError(
+                "Alembic is not installed but is required for database migrations. "
+                "Please run `pip install -r requirements.txt`."
+            ) from e
+
+        try:
+            # Locate alembic.ini from the package root
+            pkg_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            alembic_ini_path = os.path.join(pkg_root, "alembic.ini")
+
+            alembic_cfg = Config(alembic_ini_path)
+
+            # We pass the db credentials explicitly if needed, but env.py reads from env anyway.
+            # Running upgrade head directly
+            command.upgrade(alembic_cfg, "head")
         except Exception as e:
             raise RuntimeError(
-                f"Cannot connect to PostgreSQL at {self._host}:{self._port}. "
-                f"Check credentials and make sure Docker/Local instance is running. Error: {e}"
+                f"Failed to run database migrations against {self._host}:{self._port}. "
+                f"Check credentials and ensure database is running. Error: {e}"
             )
 
-        with conn:
-            with conn.cursor() as cur:
-                # Projects table
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS projects (
-                        id SERIAL PRIMARY KEY,
-                        name VARCHAR(255) UNIQUE NOT NULL,
-                        stack VARCHAR(255),
-                        last_indexed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-
-                # Files table (cascades deletes to chunks)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS files (
-                        id SERIAL PRIMARY KEY,
-                        project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
-                        path VARCHAR(1024) NOT NULL,
-                        content_hash VARCHAR(64) NOT NULL,
-                        file_mtime DOUBLE PRECISION NOT NULL,
-                        last_indexed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(project_id, path)
-                    );
-                """)
-
-                # Chunks table. ID is UUID (corresponds to Qdrant vector UUID)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS chunks (
-                        id UUID PRIMARY KEY,
-                        file_id INTEGER REFERENCES files(id) ON DELETE CASCADE,
-                        project VARCHAR(255) NOT NULL,
-                        path VARCHAR(1024) NOT NULL,
-                        language VARCHAR(64),
-                        chunk_type VARCHAR(64),
-                        symbol VARCHAR(255),
-                        content TEXT NOT NULL,
-                        start_line INTEGER,
-                        end_line INTEGER,
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-
-                # Decision history vault table
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS decision_logs (
-                        id SERIAL PRIMARY KEY,
-                        topic VARCHAR(255) NOT NULL,
-                        entry_name VARCHAR(255) NOT NULL,
-                        description TEXT NOT NULL,
-                        rationale TEXT NOT NULL,
-                        options_considered JSONB,
-                        logged_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-
-                # System/audit logs table
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS audit_logs (
-                        id SERIAL PRIMARY KEY,
-                        ts TIMESTAMP WITH TIME ZONE NOT NULL,
-                        trace_id VARCHAR(8),
-                        event VARCHAR(255) NOT NULL,
-                        severity VARCHAR(10) NOT NULL,
-                        subsystem VARCHAR(64) NOT NULL,
-                        duration_ms INTEGER,
-                        payload JSONB
-                    );
-                """)
-
-                # BM25 full-text search: generated tsvector column + GIN index
-                # Check if the column already exists before running ALTER TABLE,
-                # which locks the table and rewrites every row if it does not exist.
-                # Skipping the ALTER when already present eliminates ~2s startup cost.
-                cur.execute("""
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'chunks' AND column_name = 'content_tsv';
-                """)
-                if not cur.fetchone():
-                    cur.execute("""
-                        ALTER TABLE chunks
-                            ADD COLUMN content_tsv TSVECTOR
-                            GENERATED ALWAYS AS (
-                                to_tsvector('english',
-                                    coalesce(symbol, '') || ' ' ||
-                                    coalesce(chunk_type, '') || ' ' ||
-                                    coalesce(content, '')
-                                )
-                            ) STORED;
-                    """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS chunks_content_tsv_gin
-                    ON chunks USING GIN (content_tsv);
-                """)
-        conn.close()
         self._initialized = True
 
     def health_check(self) -> bool:
