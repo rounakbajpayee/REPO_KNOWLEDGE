@@ -18,14 +18,15 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+
+from repo_knowledge.config import IGNORE_EXTENSIONS, SUPPORTED_EXTENSIONS
 
 try:
     from tree_sitter import Language, Parser
 except ImportError:
-    Language = None
-    Parser = None
-
-from repo_knowledge.config import IGNORE_EXTENSIONS, SUPPORTED_EXTENSIONS
+    Language = Any  # type: ignore[assignment,misc]
+    Parser = Any  # type: ignore[assignment,misc]
 
 
 @dataclass
