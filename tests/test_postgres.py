@@ -14,7 +14,8 @@ def test_get_project_names(db):
     # Insert some dummy projects
     with db.cursor() as cur:
         cur.execute(
-            "INSERT INTO projects (name, stack) VALUES ('AI_LAB', 'python'), ('APRIL', 'python'), ('ECHO', 'python')"
+            "INSERT INTO projects (name, stack) VALUES "
+            "('AI_LAB', 'python'), ('APRIL', 'python'), ('ECHO', 'python')"
         )
 
     names = store.get_project_names()
@@ -88,9 +89,7 @@ def test_ensure_tables_runs_migrations(db):
     store = PostgresStore(connection=db)
     # The tables should already be ensured by the fixture,
     # but calling it again shouldn't fail and should mark initialized.
-    # We must patch _create_database_if_not_exists or connect calls if it uses default hardcoded host when missing.
-    # Wait, the store uses default env vars if not passed explicitly in test_ensure_tables_runs_migrations
-    # Let's pass the host/port/etc so it can connect to the test db if it needs a bare connection.
+    # Pass connection details from env to avoid localhost defaults failing in CI container
     import os
     store = PostgresStore(
         host=os.getenv("TEST_PG_HOST", "localhost"),
@@ -209,7 +208,8 @@ def test_log_decision(db):
 
     with db.cursor() as cur:
         cur.execute(
-            "SELECT entry_name, options_considered FROM decision_logs WHERE topic = 'embedding_model'"
+            "SELECT entry_name, options_considered "
+            "FROM decision_logs WHERE topic = 'embedding_model'"
         )
         row = cur.fetchone()
 
