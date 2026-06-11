@@ -19,24 +19,25 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from repo_knowledge.config import IGNORE_DIRS, IGNORE_EXTENSIONS, SUPPORTED_EXTENSIONS
+from repo_knowledge.config import IGNORE_EXTENSIONS, SUPPORTED_EXTENSIONS
 
 
 @dataclass
 class Chunk:
     project: str
-    path: str               # Relative to project root
+    path: str  # Relative to project root
     language: str
-    chunk_type: str         # "function" | "class" | "section" | "block"
-    symbol: str             # Function/class name, header text, or ""
+    chunk_type: str  # "function" | "class" | "section" | "block"
+    symbol: str  # Function/class name, header text, or ""
     content: str
     start_line: int
     end_line: int
-    content_hash: str = field(default="")   # sha256 of file source, stamped per-file
+    content_hash: str = field(default="")  # sha256 of file source, stamped per-file
     file_mtime: float = field(default=0.0)  # st_mtime of the source file
 
 
 # ── Python AST chunker ────────────────────────────────────────────────────────
+
 
 def _extract_imports(source_lines: list[str], tree: ast.Module) -> str:
     """Collect all top-level import lines as a header block."""
@@ -60,7 +61,8 @@ def _chunk_python(source: str, rel_path: str, project: str) -> list[Chunk]:
     import_header = _extract_imports(source_lines, tree)
 
     top_level_nodes = [
-        node for node in ast.iter_child_nodes(tree)
+        node
+        for node in ast.iter_child_nodes(tree)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
     ]
 
@@ -69,8 +71,8 @@ def _chunk_python(source: str, rel_path: str, project: str) -> list[Chunk]:
         return _chunk_fixed(source, rel_path, project, language="python")
 
     for node in top_level_nodes:
-        start = node.lineno - 1           # 0-indexed
-        end = node.end_lineno             # exclusive slice end
+        start = node.lineno - 1  # 0-indexed
+        end = node.end_lineno  # exclusive slice end
         body_lines = source_lines[start:end]
         content = "\n".join(body_lines)
 
@@ -79,53 +81,62 @@ def _chunk_python(source: str, rel_path: str, project: str) -> list[Chunk]:
 
         chunk_type = "class" if isinstance(node, ast.ClassDef) else "function"
 
-        chunks.append(Chunk(
-            project=project,
-            path=rel_path,
-            language="python",
-            chunk_type=chunk_type,
-            symbol=node.name,
-            content=content,
-            start_line=node.lineno,
-            end_line=node.end_lineno,
-        ))
+        chunks.append(
+            Chunk(
+                project=project,
+                path=rel_path,
+                language="python",
+                chunk_type=chunk_type,
+                symbol=node.name,
+                content=content,
+                start_line=node.lineno,
+                end_line=node.end_lineno or node.lineno,
+            )
+        )
 
     return chunks
 
 
 # ── JS/TS AST chunker ───────────────────────────────────────────────────────
-import tree_sitter
-from tree_sitter import Language, Parser
+from tree_sitter import (  # noqa: E402 — must follow conditional tree-sitter loader block
+    Language,
+    Parser,
+)
+
 
 def _get_ts_parser(language: str) -> Parser | None:
     try:
         if language == "typescript":
             import tree_sitter_typescript as tsts
+
             if hasattr(tsts, "language_typescript"):
                 lang = Language(tsts.language_typescript())
             else:
-                lang = Language(tsts.language())
+                lang = Language(tsts.language())  # type: ignore[attr-defined]
         else:
             import tree_sitter_javascript as tsjs
+
             if hasattr(tsjs, "language_javascript"):
                 lang = Language(tsjs.language_javascript())
             else:
-                lang = Language(tsjs.language())
+                lang = Language(tsjs.language())  # type: ignore[attr-defined]
 
         parser = Parser(lang)
         return parser
     except (ImportError, AttributeError):
         return None
 
+
 def _get_symbol_from_node(node) -> str:
     for child in node.children:
-        if child.type in ('identifier', 'type_identifier', 'property_identifier'):
-            return child.text.decode('utf8')
-    if node.type == 'lexical_declaration' or node.type == 'variable_declaration':
+        if child.type in ("identifier", "type_identifier", "property_identifier"):
+            return child.text.decode("utf8")
+    if node.type == "lexical_declaration" or node.type == "variable_declaration":
         for child in node.children:
-            if child.type == 'variable_declarator':
+            if child.type == "variable_declarator":
                 return _get_symbol_from_node(child)
     return ""
+
 
 def _chunk_js_ts(source: str, rel_path: str, project: str, language: str) -> list[Chunk]:
     parser = _get_ts_parser(language)
@@ -140,9 +151,12 @@ def _chunk_js_ts(source: str, rel_path: str, project: str, language: str) -> lis
     chunks: list[Chunk] = []
 
     target_types = {
-        'class_declaration', 'function_declaration', 'method_definition', 'interface_declaration'
+        "class_declaration",
+        "function_declaration",
+        "method_definition",
+        "interface_declaration",
     }
-    arrow_fn_declarations = {'lexical_declaration', 'variable_declaration'}
+    arrow_fn_declarations = {"lexical_declaration", "variable_declaration"}
 
     def extract_nodes(node):
         result = []
@@ -150,9 +164,9 @@ def _chunk_js_ts(source: str, rel_path: str, project: str, language: str) -> lis
             result.append(node)
         elif node.type in arrow_fn_declarations:
             for child in node.children:
-                if child.type == 'variable_declarator':
+                if child.type == "variable_declarator":
                     for gc in child.children:
-                        if gc.type == 'arrow_function':
+                        if gc.type == "arrow_function":
                             result.append(node)
                             break
         for child in node.children:
@@ -171,28 +185,31 @@ def _chunk_js_ts(source: str, rel_path: str, project: str, language: str) -> lis
         if end_line_idx >= len(source_lines):
             end_line_idx = len(source_lines) - 1
 
-        body_lines = source_lines[start_line_idx:end_line_idx + 1]
+        body_lines = source_lines[start_line_idx : end_line_idx + 1]
         content = "\n".join(body_lines)
         symbol = _get_symbol_from_node(node)
 
         chunk_type = "function"
-        if node.type in ('class_declaration', 'interface_declaration'):
+        if node.type in ("class_declaration", "interface_declaration"):
             chunk_type = "class"
-        elif node.type == 'method_definition':
+        elif node.type == "method_definition":
             chunk_type = "function"
 
-        chunks.append(Chunk(
-            project=project,
-            path=rel_path,
-            language=language,
-            chunk_type=chunk_type,
-            symbol=symbol,
-            content=content,
-            start_line=start_line_idx + 1,
-            end_line=end_line_idx + 1,
-        ))
+        chunks.append(
+            Chunk(
+                project=project,
+                path=rel_path,
+                language=language,
+                chunk_type=chunk_type,
+                symbol=symbol,
+                content=content,
+                start_line=start_line_idx + 1,
+                end_line=end_line_idx + 1,
+            )
+        )
 
     return chunks
+
 
 # ── Markdown header chunker ───────────────────────────────────────────────────
 
@@ -224,16 +241,18 @@ def _chunk_markdown(source: str, rel_path: str, project: str) -> list[Chunk]:
                 sc.end_line += start_line - 1
             chunks.extend(sub_chunks)
         else:
-            chunks.append(Chunk(
-                project=project,
-                path=rel_path,
-                language="markdown",
-                chunk_type="section",
-                symbol=match.group().lstrip("#").strip(),
-                content=block,
-                start_line=start_line,
-                end_line=end_line,
-            ))
+            chunks.append(
+                Chunk(
+                    project=project,
+                    path=rel_path,
+                    language="markdown",
+                    chunk_type="section",
+                    symbol=match.group().lstrip("#").strip(),
+                    content=block,
+                    start_line=start_line,
+                    end_line=end_line,
+                )
+            )
 
     return chunks
 
@@ -250,17 +269,19 @@ def _chunk_fixed(source: str, rel_path: str, project: str, language: str) -> lis
     step = _CHUNK_LINES - _OVERLAP_LINES
     i = 0
     while i < len(lines):
-        block_lines = lines[i: i + _CHUNK_LINES]
-        chunks.append(Chunk(
-            project=project,
-            path=rel_path,
-            language=language,
-            chunk_type="block",
-            symbol="",
-            content="\n".join(block_lines),
-            start_line=i + 1,
-            end_line=i + len(block_lines),
-        ))
+        block_lines = lines[i : i + _CHUNK_LINES]
+        chunks.append(
+            Chunk(
+                project=project,
+                path=rel_path,
+                language=language,
+                chunk_type="block",
+                symbol="",
+                content="\n".join(block_lines),
+                start_line=i + 1,
+                end_line=i + len(block_lines),
+            )
+        )
         i += step
     return chunks
 
@@ -286,6 +307,7 @@ _LANG_MAP: dict[str, str] = {
 _DOCKER_COMPOSE_RE = re.compile(r"^\s{2}([a-zA-Z0-9_-]+):", re.MULTILINE)
 _CONF_SECTION_RE = re.compile(r"^\[(.*?)\]", re.MULTILINE)
 
+
 def _chunk_docker_compose(source: str, rel_path: str, project: str) -> list[Chunk]:
     matches = list(_DOCKER_COMPOSE_RE.finditer(source))
     if not matches:
@@ -302,22 +324,26 @@ def _chunk_docker_compose(source: str, rel_path: str, project: str) -> list[Chun
 
         symbol = f"service: {match.group(1)}"
 
-        chunks.append(Chunk(
-            project=project,
-            path=rel_path,
-            language="yaml",
-            chunk_type="section",
-            symbol=symbol,
-            content=block,
-            start_line=start_line,
-            end_line=end_line,
-        ))
+        chunks.append(
+            Chunk(
+                project=project,
+                path=rel_path,
+                language="yaml",
+                chunk_type="section",
+                symbol=symbol,
+                content=block,
+                start_line=start_line,
+                end_line=end_line,
+            )
+        )
 
     return chunks
 
+
 def _chunk_plist(source: str, file_path: Path, rel_path: str, project: str) -> list[Chunk]:
-    import plistlib
     import json
+    import plistlib
+
     try:
         with open(file_path, "rb") as f:
             pl = plistlib.load(f)
@@ -334,20 +360,23 @@ def _chunk_plist(source: str, file_path: Path, rel_path: str, project: str) -> l
         except TypeError:
             content = str({key: value})
 
-        chunks.append(Chunk(
-            project=project,
-            path=rel_path,
-            language="xml",
-            chunk_type="section",
-            symbol=f"key: {key}",
-            content=content,
-            start_line=1,
-            end_line=content.count("\n") + 1,
-        ))
+        chunks.append(
+            Chunk(
+                project=project,
+                path=rel_path,
+                language="xml",
+                chunk_type="section",
+                symbol=f"key: {key}",
+                content=content,
+                start_line=1,
+                end_line=content.count("\n") + 1,
+            )
+        )
 
     if not chunks:
         return _chunk_fixed(source, rel_path, project, language="xml")
     return chunks
+
 
 def _chunk_conf(source: str, rel_path: str, project: str) -> list[Chunk]:
     matches = list(_CONF_SECTION_RE.finditer(source))
@@ -365,16 +394,18 @@ def _chunk_conf(source: str, rel_path: str, project: str) -> list[Chunk]:
 
         symbol = f"section: {match.group(1)}"
 
-        chunks.append(Chunk(
-            project=project,
-            path=rel_path,
-            language="ini",
-            chunk_type="section",
-            symbol=symbol,
-            content=block,
-            start_line=start_line,
-            end_line=end_line,
-        ))
+        chunks.append(
+            Chunk(
+                project=project,
+                path=rel_path,
+                language="ini",
+                chunk_type="section",
+                symbol=symbol,
+                content=block,
+                start_line=start_line,
+                end_line=end_line,
+            )
+        )
 
     return chunks
 
@@ -401,7 +432,11 @@ def chunk_file(
     filename = file_path.name.lower()
     is_docker_compose = filename in ("docker-compose.yml", "docker-compose.yaml")
 
-    if suffix not in SUPPORTED_EXTENSIONS and not is_docker_compose and suffix not in (".plist", ".conf", ".ini"):
+    if (
+        suffix not in SUPPORTED_EXTENSIONS
+        and not is_docker_compose
+        and suffix not in (".plist", ".conf", ".ini")
+    ):
         return []
 
     try:
@@ -421,7 +456,7 @@ def chunk_file(
         return []
 
     # Skip files with extremely long lines (classic signature of minified code/data blobs).
-    # Programming code files have strict formatting, whereas docs/data files might have longer lines.
+    # Programming code files have strict formatting, whereas docs/data files might have longer lines.  # noqa: E501
     max_line_len = 1000 if suffix in {".py", ".js", ".jsx", ".ts", ".tsx"} else 10000
     if any(len(line) > max_line_len for line in source.splitlines()):
         return []
@@ -469,6 +504,7 @@ def chunk_project(project_root: Path, project_name: str) -> list[Chunk]:
     Uses Git-aware file listing if available.
     """
     from repo_knowledge.scanner import list_project_files
+
     all_chunks: list[Chunk] = []
 
     for file_path in list_project_files(project_root):

@@ -109,7 +109,7 @@ def list_project_files(project_path: Path) -> list[Path]:
             cwd=project_path,
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         paths = [p for p in res.stdout.split("\0") if p]
         # Filter out any paths that resolve outside project_path
@@ -117,7 +117,9 @@ def list_project_files(project_path: Path) -> list[Path]:
         for p in paths:
             f_path = (project_path / p).resolve()
             # Double check it is actually a file and starts with project_path
-            if f_path.is_file() and str(f_path).lower().startswith(str(project_path.resolve()).lower()):
+            if f_path.is_file() and str(f_path).lower().startswith(
+                str(project_path.resolve()).lower()
+            ):
                 res_paths.append(f_path)
         return res_paths
     except (subprocess.SubprocessError, FileNotFoundError, OSError):
@@ -125,7 +127,11 @@ def list_project_files(project_path: Path) -> list[Path]:
         files = []
         for root, dirs, filenames in os.walk(project_path):
             # Prune ignored directories in-place to avoid walking into them
-            dirs[:] = [d for d in dirs if d not in IGNORE_DIRS and not d.startswith(".") and not d.endswith(".egg-info")]
+            dirs[:] = [
+                d
+                for d in dirs
+                if d not in IGNORE_DIRS and not d.startswith(".") and not d.endswith(".egg-info")
+            ]
             for filename in filenames:
                 files.append(Path(root) / filename)
         return files

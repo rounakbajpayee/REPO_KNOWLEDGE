@@ -5,7 +5,9 @@ All tests mock out sentence_transformers so they run without the model download.
 """
 
 from unittest.mock import MagicMock, patch
+
 import pytest
+
 from repo_knowledge import reranker
 
 
@@ -28,6 +30,7 @@ def _make_chunks(n: int, base_score: float = 0.8) -> list[dict]:
 def reset_reranker_state():
     """Reset singleton state between tests."""
     import repo_knowledge.reranker as r_mod
+
     original_model = r_mod._model
     original_failed = r_mod._model_failed
     yield
@@ -39,6 +42,7 @@ def test_rerank_returns_top_k():
     """rerank() must return at most top_k results."""
     mock_model = MagicMock()
     import numpy as np
+
     mock_model.predict.return_value = np.array([0.9, 0.5, 0.7, 0.3, 0.8])
 
     with patch("repo_knowledge.reranker._load_model", return_value=mock_model):
@@ -52,6 +56,7 @@ def test_rerank_orders_by_score_descending():
     """rerank() must return results sorted by rerank_score descending."""
     mock_model = MagicMock()
     import numpy as np
+
     # Scores: chunk0=0.1, chunk1=0.9, chunk2=0.5
     mock_model.predict.return_value = np.array([0.1, 0.9, 0.5])
 
@@ -68,6 +73,7 @@ def test_rerank_sets_score_field():
     """rerank() must set 'score' == 'rerank_score' for API compatibility."""
     mock_model = MagicMock()
     import numpy as np
+
     mock_model.predict.return_value = np.array([0.75])
 
     with patch("repo_knowledge.reranker._load_model", return_value=mock_model):

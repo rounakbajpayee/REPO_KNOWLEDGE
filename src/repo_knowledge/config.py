@@ -6,6 +6,7 @@ Copy .env.example to .env and adjust before running.
 """
 
 import os
+
 os.environ["TQDM_DISABLE"] = "1"
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"

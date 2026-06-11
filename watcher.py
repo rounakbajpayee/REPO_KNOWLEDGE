@@ -8,19 +8,19 @@ for the corresponding project after 5 seconds of idle time.
 
 import os
 import sys
-import time
 import threading
+import time
 from pathlib import Path
+
 import click
-from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 # Resolve REPO_KNOWLEDGE/src path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from repo_knowledge.config import PROJECTS_ROOT, SUPPORTED_EXTENSIONS, IGNORE_DIRS
+from repo_knowledge.config import IGNORE_DIRS, PROJECTS_ROOT, SUPPORTED_EXTENSIONS
 from repo_knowledge.knowledge import KnowledgeService
-from repo_knowledge.scanner import get_project
 
 
 class ProjectChangeHandler(FileSystemEventHandler):
@@ -64,7 +64,7 @@ class ProjectChangeHandler(FileSystemEventHandler):
         if not path_str.startswith(root_str):
             return  # Path is not under PROJECTS_ROOT
 
-        rel_str = path_str[len(root_str):].lstrip(os.sep)
+        rel_str = path_str[len(root_str) :].lstrip(os.sep)
         parts = rel_str.split(os.sep)
         if not parts or not parts[0]:
             return
@@ -93,7 +93,6 @@ class ProjectChangeHandler(FileSystemEventHandler):
         with self.lock:
             self.pending_projects.add(project_name)
             self._reset_timer_unlocked()
-
 
     def _reset_timer_unlocked(self):
         if self.timer is not None:

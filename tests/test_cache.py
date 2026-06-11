@@ -6,7 +6,9 @@ All tests mock redis.from_url so they run without a real Redis instance.
 
 import json
 from unittest.mock import MagicMock, patch
+
 import pytest
+
 from repo_knowledge import cache
 
 
@@ -14,6 +16,7 @@ from repo_knowledge import cache
 def reset_cache_state():
     """Reset singleton connection state between tests."""
     import repo_knowledge.cache as c_mod
+
     original_client = c_mod._client
     original_failed = c_mod._client_failed
     yield
@@ -29,6 +32,7 @@ def _mock_redis(ping_ok: bool = True) -> MagicMock:
 
 
 # ── cache key derivation ───────────────────────────────────────────────────────
+
 
 def test_cache_key_is_deterministic():
     k1 = cache._cache_key("auth middleware", "PROJ", 5)
@@ -64,6 +68,7 @@ def test_cache_key_has_namespace_prefix():
 
 # ── get_cached ────────────────────────────────────────────────────────────────
 
+
 def test_get_cached_returns_none_when_redis_unavailable():
     with patch("repo_knowledge.cache._get_client", return_value=None):
         result = cache.get_cached("query", "PROJ", 5)
@@ -97,6 +102,7 @@ def test_get_cached_returns_none_on_redis_error():
 
 # ── set_cached ────────────────────────────────────────────────────────────────
 
+
 def test_set_cached_calls_setex():
     mock_r = _mock_redis()
     payload = [{"content": "x", "score": 0.8}]
@@ -121,6 +127,7 @@ def test_set_cached_is_noop_on_redis_error():
 
 
 # ── is_available ──────────────────────────────────────────────────────────────
+
 
 def test_is_available_true_when_connected():
     mock_r = _mock_redis()

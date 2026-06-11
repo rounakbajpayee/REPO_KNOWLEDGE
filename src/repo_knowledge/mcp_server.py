@@ -29,17 +29,18 @@ Startup checks:
 import asyncio
 import json
 import logging
+import time
+from typing import Any
 
 import mcp.server.stdio
 import mcp.types as types
 from mcp.server import Server
 
-import time
 from repo_knowledge.config import OLLAMA_URL, QDRANT_URL, TOOL_TIMEOUT_S
 from repo_knowledge.embedder import OllamaEmbedder
 from repo_knowledge.knowledge import KnowledgeService
 from repo_knowledge.store import Store
-from repo_knowledge.tracer import new_trace_id, trace, set_trace_id, reset_trace_id
+from repo_knowledge.tracer import new_trace_id, reset_trace_id, set_trace_id, trace
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ log = logging.getLogger(__name__)
 
 server = Server("repo-knowledge")
 _svc: KnowledgeService | None = None
-_svc_lock = __import__('threading').Lock()
+_svc_lock = __import__("threading").Lock()
 
 
 def _get_service() -> KnowledgeService:
@@ -63,7 +64,10 @@ def _get_service() -> KnowledgeService:
 
 # ── Synchronous dispatch (pure, no async) ───────────────────────────────────────────
 
-def _dispatch(svc: KnowledgeService, name: str, arguments: dict, trace_id: str | None = None) -> dict:
+
+def _dispatch(
+    svc: KnowledgeService, name: str, arguments: dict, trace_id: str | None = None
+) -> Any:
     """Route a tool call to the appropriate KnowledgeService method."""
     token = None
     if trace_id:
@@ -75,12 +79,14 @@ def _dispatch(svc: KnowledgeService, name: str, arguments: dict, trace_id: str |
 
         elif name == "get_project_context":
             project = arguments.get("project", "")
-            if not project: return {"error": "project is required"}
+            if not project:
+                return {"error": "project is required"}
             return svc.get_project_context(project)
 
         elif name == "search_codebase":
             query = arguments.get("query", "")
-            if not query: return {"error": "query is required"}
+            if not query:
+                return {"error": "query is required"}
             top_k = int(arguments.get("top_k", 5))
             if top_k < 1 or top_k > 1000:
                 return {"error": f"top_k must be 1-1000, got {top_k}"}
@@ -88,12 +94,18 @@ def _dispatch(svc: KnowledgeService, name: str, arguments: dict, trace_id: str |
 
         elif name == "list_files":
             project = arguments.get("project", "")
-            if not project: return {"error": "project is required"}
-            return svc.list_files(project_name=project, path_prefix=arguments.get("path_prefix"), extension=arguments.get("extension"))
+            if not project:
+                return {"error": "project is required"}
+            return svc.list_files(
+                project_name=project,
+                path_prefix=arguments.get("path_prefix"),
+                extension=arguments.get("extension"),
+            )
 
         elif name == "search_symbols":
             query = arguments.get("query", "")
-            if not query: return {"error": "query is required"}
+            if not query:
+                return {"error": "query is required"}
             top_k = int(arguments.get("top_k", 10))
             if top_k < 1 or top_k > 1000:
                 return {"error": f"top_k must be 1-1000, got {top_k}"}
@@ -102,17 +114,21 @@ def _dispatch(svc: KnowledgeService, name: str, arguments: dict, trace_id: str |
         elif name == "get_chunks_for_file":
             project = arguments.get("project", "")
             path = arguments.get("path", "")
-            if not project or not path: return {"error": "project and path are required"}
+            if not project or not path:
+                return {"error": "project and path are required"}
             return svc.get_chunks_for_file(project, path)
 
         elif name == "get_file":
             project = arguments.get("project", "")
             path = arguments.get("path", "")
-            if not project or not path: return {"error": "project and path are required"}
+            if not project or not path:
+                return {"error": "project and path are required"}
             start_line = arguments.get("start_line")
             end_line = arguments.get("end_line")
-            if start_line is not None: start_line = int(start_line)
-            if end_line is not None: end_line = int(end_line)
+            if start_line is not None:
+                start_line = int(start_line)
+            if end_line is not None:
+                end_line = int(end_line)
             return svc.get_file(project, path, start_line=start_line, end_line=end_line)
 
         elif name == "re_embed":
@@ -120,7 +136,8 @@ def _dispatch(svc: KnowledgeService, name: str, arguments: dict, trace_id: str |
 
         elif name == "reindex_project":
             project = arguments.get("project", "")
-            if not project: return {"error": "project is required"}
+            if not project:
+                return {"error": "project is required"}
             return svc.reindex_project(project)
 
         elif name == "log_decision":
@@ -129,14 +146,16 @@ def _dispatch(svc: KnowledgeService, name: str, arguments: dict, trace_id: str |
             desc = arguments.get("description", "")
             rationale = arguments.get("rationale", "")
             opts = arguments.get("options_considered")
-            if not all([topic, d_name, desc, rationale]): return {"error": "topic, name, description, and rationale are required"}
+            if not all([topic, d_name, desc, rationale]):
+                return {"error": "topic, name, description, and rationale are required"}
             return svc.log_decision(topic, d_name, desc, rationale, opts)
 
         elif name == "get_decision_history":
             topic = arguments.get("topic", "")
             limit = int(arguments.get("limit", 3))
             full_history = bool(arguments.get("full_history", False))
-            if not topic: return {"error": "topic is required"}
+            if not topic:
+                return {"error": "topic is required"}
             return svc.get_decision_history(topic, limit, full_history)
 
         else:
@@ -146,8 +165,8 @@ def _dispatch(svc: KnowledgeService, name: str, arguments: dict, trace_id: str |
             reset_trace_id(token)
 
 
-
 # ── Tool definitions ───────────────────────────────────────────────────────────────
+
 
 @server.list_tools()
 async def list_tools() -> list[types.Tool]:
@@ -212,8 +231,8 @@ async def list_tools() -> list[types.Tool]:
             name="list_files",
             description=(
                 "List all files in a project. "
-                "Use path_prefix to filter by directory (e.g. 'src/'), extension to filter by type (e.g. '.py'). "
-                "Returns file paths and metadata without content. Use this before get_file to navigate a project."
+                "Use path_prefix to filter by directory (e.g. 'src/'), extension to filter by type (e.g. '.py'). "  # noqa: E501
+                "Returns file paths and metadata without content. Use this before get_file to navigate a project."  # noqa: E501
             ),
             inputSchema={
                 "type": "object",
@@ -228,7 +247,7 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "extension": {
                         "type": "string",
-                        "description": "Optional: filter by file extension (e.g. '.py', or '*' for all)",
+                        "description": "Optional: filter by file extension (e.g. '.py', or '*' for all)",  # noqa: E501
                     },
                 },
                 "required": ["project"],
@@ -238,7 +257,7 @@ async def list_tools() -> list[types.Tool]:
             name="search_symbols",
             description=(
                 "Semantic search returning symbol locations only — no content bodies. "
-                "Use this to find where a function or class is defined, then call get_file to read its implementation. "
+                "Use this to find where a function or class is defined, then call get_file to read its implementation. "  # noqa: E501
                 "Lower token cost than search_codebase for navigation tasks."
             ),
             inputSchema={
@@ -264,8 +283,8 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="get_chunks_for_file",
             description=(
-                "Get the complete symbol map of an indexed file — all functions, classes, and sections with their line ranges. "
-                "Use this to understand a file's structure before deciding which part to read with get_file."
+                "Get the complete symbol map of an indexed file — all functions, classes, and sections with their line ranges. "  # noqa: E501
+                "Use this to understand a file's structure before deciding which part to read with get_file."  # noqa: E501
             ),
             inputSchema={
                 "type": "object",
@@ -299,11 +318,11 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "path": {
                         "type": "string",
-                        "description": "File path relative to project root, e.g. src/auth/service.py",
+                        "description": "File path relative to project root, e.g. src/auth/service.py",  # noqa: E501
                     },
                     "start_line": {
                         "type": "integer",
-                        "description": "Optional: 1-indexed start line number (inclusive) to read from",
+                        "description": "Optional: 1-indexed start line number (inclusive) to read from",  # noqa: E501
                     },
                     "end_line": {
                         "type": "integer",
@@ -334,8 +353,8 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="re_embed",
             description=(
-                "Wipe Qdrant vector database collection and re-embed all code chunks from the PostgreSQL store. "
-                "Call this after updating the embedding model in configuration to rebuild the vector cache "
+                "Wipe Qdrant vector database collection and re-embed all code chunks from the PostgreSQL store. "  # noqa: E501
+                "Call this after updating the embedding model in configuration to rebuild the vector cache "  # noqa: E501
                 "without rescanning or re-parsing the original project files on disk."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
@@ -343,16 +362,16 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="log_decision",
             description=(
-                "Log an architectural, configuration, or dependency decision under a specific topic. "
-                "Call this IMMEDIATELY when a final decision is reached. Do not wait until the end of the session. "
-                "Input includes options considered and final rationale to preserve the decision evolution timeline."
+                "Log an architectural, configuration, or dependency decision under a specific topic. "  # noqa: E501
+                "Call this IMMEDIATELY when a final decision is reached. Do not wait until the end of the session. "  # noqa: E501
+                "Input includes options considered and final rationale to preserve the decision evolution timeline."  # noqa: E501
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "topic": {
                         "type": "string",
-                        "description": "Slugified topic name (e.g. 'embedding_model', 'auth_handling')",
+                        "description": "Slugified topic name (e.g. 'embedding_model', 'auth_handling')",  # noqa: E501
                     },
                     "name": {
                         "type": "string",
@@ -364,30 +383,40 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "rationale": {
                         "type": "string",
-                        "description": "Detailed reasoning explaining why this choice was selected over alternatives.",
+                        "description": "Detailed reasoning explaining why this choice was selected over alternatives.",  # noqa: E501
                     },
                     "options_considered": {
                         "type": "array",
-                        "description": "Optional list of alternatives analyzed during brainstorming.",
+                        "description": "Optional list of alternatives analyzed during brainstorming.",  # noqa: E501
                         "items": {
                             "type": "object",
                             "properties": {
-                                "name": {"type": "string", "description": "Alternative candidate name"},
-                                "status": {"type": "string", "enum": ["SELECTED", "REJECTED"], "description": "Whether selected or rejected"},
-                                "rationale": {"type": "string", "description": "Pros/cons or reason for rejection/selection"}
+                                "name": {
+                                    "type": "string",
+                                    "description": "Alternative candidate name",
+                                },
+                                "status": {
+                                    "type": "string",
+                                    "enum": ["SELECTED", "REJECTED"],
+                                    "description": "Whether selected or rejected",
+                                },
+                                "rationale": {
+                                    "type": "string",
+                                    "description": "Pros/cons or reason for rejection/selection",
+                                },
                             },
-                            "required": ["name", "status"]
-                        }
-                    }
+                            "required": ["name", "status"],
+                        },
+                    },
                 },
-                "required": ["topic", "name", "description", "rationale"]
-            }
+                "required": ["topic", "name", "description", "rationale"],
+            },
         ),
         types.Tool(
             name="get_decision_history",
             description=(
                 "Retrieve the chronological history of decisions logged under a topic. "
-                "By default, returns only the last 3 entries to preserve the agent's context window. "
+                "By default, returns only the last 3 entries to preserve the agent's context window. "  # noqa: E501
                 "Explicitly request full_history=true to fetch the complete chronological timeline."
             ),
             inputSchema={
@@ -395,27 +424,27 @@ async def list_tools() -> list[types.Tool]:
                 "properties": {
                     "topic": {
                         "type": "string",
-                        "description": "Slugified topic name (e.g. 'embedding_model', 'auth_handling')",
+                        "description": "Slugified topic name (e.g. 'embedding_model', 'auth_handling')",  # noqa: E501
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Max entries to return when full_history is false (default: 3).",
+                        "description": "Max entries to return when full_history is false (default: 3).",  # noqa: E501
                         "default": 3,
                     },
                     "full_history": {
                         "type": "boolean",
-                        "description": "Set to true to retrieve all entries. Warning: large histories consume significant tokens.",
+                        "description": "Set to true to retrieve all entries. Warning: large histories consume significant tokens.",  # noqa: E501
                         "default": False,
-                    }
+                    },
                 },
-                "required": ["topic"]
-            }
+                "required": ["topic"],
+            },
         ),
     ]
 
 
-
 # ── Tool handlers ────────────────────────────────────────────────────────────────
+
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
@@ -437,7 +466,14 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         timeout_s = int(TOOL_TIMEOUT_S)
         log.warning("Tool '%s' timed out after %ss", name, timeout_s)
         duration_ms = round((time.monotonic() - t0) * 1000)
-        trace("tool_timeout", subsystem="mcp", trace_id=tid, tool=name, severity="ERROR", duration_ms=duration_ms)
+        trace(
+            "tool_timeout",
+            subsystem="mcp",
+            trace_id=tid,
+            tool=name,
+            severity="ERROR",
+            duration_ms=duration_ms,
+        )
         result = {
             "error": (
                 f"Tool '{name}' timed out after {timeout_s}s. "
@@ -448,19 +484,36 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     except RuntimeError as e:
         # Embedder or store connectivity failure — return clean error to agent
         duration_ms = round((time.monotonic() - t0) * 1000)
-        trace("tool_error", subsystem="mcp", trace_id=tid, tool=name, severity="ERROR", duration_ms=duration_ms, error=str(e))
+        trace(
+            "tool_error",
+            subsystem="mcp",
+            trace_id=tid,
+            tool=name,
+            severity="ERROR",
+            duration_ms=duration_ms,
+            error=str(e),
+        )
         result = {"error": str(e)}
 
     except Exception as e:
         log.exception("Unexpected error in tool %s", name)
         duration_ms = round((time.monotonic() - t0) * 1000)
-        trace("tool_error", subsystem="mcp", trace_id=tid, tool=name, severity="ERROR", duration_ms=duration_ms, error=str(e))
+        trace(
+            "tool_error",
+            subsystem="mcp",
+            trace_id=tid,
+            tool=name,
+            severity="ERROR",
+            duration_ms=duration_ms,
+            error=str(e),
+        )
         result = {"error": f"Internal error: {e}"}
 
     return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
+
 
 async def main() -> None:
     log.info("Starting REPO_KNOWLEDGE MCP server")
@@ -477,7 +530,9 @@ async def main() -> None:
         log.info("Qdrant OK")
 
     if not embedder.health_check():
-        log.warning("Ollama unreachable at %s — search and reindex will fail until resolved", OLLAMA_URL)
+        log.warning(
+            "Ollama unreachable at %s — search and reindex will fail until resolved", OLLAMA_URL
+        )
     else:
         log.info("Ollama OK")
 
@@ -489,6 +544,7 @@ async def main() -> None:
         log.info("Starting delayed main-thread pre-load of reranker model...")
         try:
             from repo_knowledge.reranker import is_available
+
             is_available()  # Blocks the event loop, but PyTorch initializes safely!
             log.info("Delayed pre-load complete. Searches will now be fast.")
         except Exception as e:
@@ -506,4 +562,5 @@ async def main() -> None:
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(main())

@@ -1,6 +1,8 @@
-import pytest
 from pathlib import Path
-from repo_knowledge.scanner import scan_projects, get_project, detect_stack, Project
+
+import pytest
+
+from repo_knowledge.scanner import get_project, scan_projects
 
 
 @pytest.fixture
@@ -81,22 +83,23 @@ def test_get_project_fast_path_returns_none_for_non_git(fake_projects):
 def test_list_project_files_fallback(tmp_path):
     """If not a git repo (or git fails), list_project_files should walk using fallback."""
     from repo_knowledge.scanner import list_project_files
+
     project_dir = tmp_path / "my_project"
     project_dir.mkdir()
     (project_dir / "src").mkdir()
-    f1 = (project_dir / "src" / "main.py")
+    f1 = project_dir / "src" / "main.py"
     f1.touch()
-    f2 = (project_dir / "README.md")
+    f2 = project_dir / "README.md"
     f2.touch()
-    
+
     # Ignored files should not be listed
-    f3 = (project_dir / "node_modules" / "lib.js")
+    f3 = project_dir / "node_modules" / "lib.js"
     f3.parent.mkdir()
     f3.touch()
-    f4 = (project_dir / ".git" / "config")
+    f4 = project_dir / ".git" / "config"
     f4.parent.mkdir()
     f4.touch()
-    
+
     files = list_project_files(project_dir)
     paths = {f.name for f in files}
     assert "main.py" in paths
@@ -108,31 +111,39 @@ def test_list_project_files_fallback(tmp_path):
 def test_list_project_files_git(tmp_path):
     """If it is a git repo, list_project_files should use git ls-files."""
     import subprocess
+
     from repo_knowledge.scanner import list_project_files
-    
+
     project_dir = tmp_path / "git_project"
     project_dir.mkdir()
-    
+
     # Initialize actual git repo
     subprocess.run(["git", "init"], cwd=project_dir, capture_output=True, check=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=project_dir, capture_output=True, check=True)
-    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=project_dir, capture_output=True, check=True)
-    
-    f1 = (project_dir / "main.py")
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=project_dir, capture_output=True, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=project_dir,
+        capture_output=True,
+        check=True,
+    )
+
+    f1 = project_dir / "main.py"
     f1.write_text("print(1)")
-    f2 = (project_dir / "ignored.tmp")
+    f2 = project_dir / "ignored.tmp"
     f2.write_text("temp")
-    
+
     # Add main.py to git, but keep ignored.tmp untracked
     subprocess.run(["git", "add", "main.py"], cwd=project_dir, capture_output=True, check=True)
-    
+
     # Create a gitignore to ignore *.tmp files
     (project_dir / ".gitignore").write_text("*.tmp\n")
     subprocess.run(["git", "add", ".gitignore"], cwd=project_dir, capture_output=True, check=True)
-    
+
     files = list_project_files(project_dir)
     paths = {f.name for f in files}
-    
+
     # main.py is tracked, .gitignore is tracked
     assert "main.py" in paths
     assert ".gitignore" in paths

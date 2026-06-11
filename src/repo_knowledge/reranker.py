@@ -23,16 +23,18 @@ from repo_knowledge.config import RERANK_MODEL
 log = logging.getLogger(__name__)
 
 try:
-    import sentence_transformers  # type: ignore[import]
+    import sentence_transformers  # type: ignore[import]  # noqa: F401
 except ImportError:
-    log.warning("Reranker unavailable: sentence-transformers not installed. Install with: pip install repo-knowledge[reranker]")
+    log.warning(
+        "Reranker unavailable: sentence-transformers not installed. Install with: pip install repo-knowledge[reranker]"  # noqa: E501
+    )
 
 
 # ── Singleton loader ──────────────────────────────────────────────────────────
 
-_model: Any = None          # CrossEncoder instance once loaded
+_model: Any = None  # CrossEncoder instance once loaded
 _init_lock = threading.Lock()
-_model_failed = False       # Set True if import/load fails; skips retries
+_model_failed = False  # Set True if import/load fails; skips retries
 
 
 def _load_model() -> Any | None:
@@ -48,9 +50,10 @@ def _load_model() -> Any | None:
             return _model
         if _model_failed:
             return None
-            
+
         try:
             from sentence_transformers import CrossEncoder  # type: ignore[import]
+
             try:
                 # Try loading from local cache first to avoid network checks/latency
                 _model = CrossEncoder(RERANK_MODEL, local_files_only=True)
@@ -67,6 +70,7 @@ def _load_model() -> Any | None:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def rerank(
     query: str,
@@ -114,7 +118,7 @@ def rerank(
     for rerank_score, chunk in scored[:top_k]:
         item = dict(chunk)
         item["rerank_score"] = round(float(rerank_score), 4)
-        item["score"] = item["rerank_score"]   # normalise field name
+        item["score"] = item["rerank_score"]  # normalise field name
         results.append(item)
 
     return results

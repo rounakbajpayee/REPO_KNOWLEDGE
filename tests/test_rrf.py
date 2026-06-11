@@ -6,11 +6,11 @@ query_text is provided and handles BM25 failures gracefully.
 """
 
 from unittest.mock import MagicMock, patch
-import pytest
+
 from repo_knowledge.store import Store, _rrf_fuse
 
-
 # ── _rrf_fuse unit tests ───────────────────────────────────────────────────────
+
 
 def test_rrf_fuse_returns_sorted_descending():
     all_ids = {"a", "b", "c"}
@@ -61,6 +61,7 @@ def test_rrf_fuse_k_parameter_affects_scores():
 
 # ── Store.search integration (mocked Qdrant + Postgres) ───────────────────────
 
+
 def _make_store():
     mock_client = MagicMock()
     mock_pg = MagicMock()
@@ -75,9 +76,13 @@ def _qdrant_hit(chunk_id: str, score: float, content: str = "def foo(): pass") -
     hit.id = chunk_id
     hit.score = score
     hit.payload = {
-        "project": "PROJ", "path": "src/a.py", "content": content,
-        "chunk_type": "function", "symbol": "foo",
-        "content_hash": f"hash_{chunk_id}", "file_mtime": 0.0,
+        "project": "PROJ",
+        "path": "src/a.py",
+        "content": content,
+        "chunk_type": "function",
+        "symbol": "foo",
+        "content_hash": f"hash_{chunk_id}",
+        "file_mtime": 0.0,
     }
     return hit
 
@@ -91,7 +96,9 @@ def test_search_calls_bm25_when_query_text_provided():
 
     mock_pg.search_bm25.assert_called_once()
     call_kwargs = mock_pg.search_bm25.call_args
-    assert "auth middleware" in call_kwargs[0] or call_kwargs[1].get("query_text") == "auth middleware"
+    assert (
+        "auth middleware" in call_kwargs[0] or call_kwargs[1].get("query_text") == "auth middleware"
+    )
 
 
 def test_search_skips_bm25_when_no_query_text():
@@ -124,11 +131,20 @@ def test_search_rrf_promotes_dual_list_chunks():
     ]
     # BM25 only returns chunk_b (rank 0) — makes it a dual-list hit
     mock_pg.search_bm25.return_value = [
-        {"id": "chunk_b", "project": "PROJ", "path": "src/b.py",
-         "content": "def bar(): pass", "chunk_type": "function",
-         "symbol": "bar", "start_line": 1, "end_line": 5,
-         "language": "python", "content_hash": "hash_chunk_b", "bm25_score": 1.0,
-         "_bm25_rank": 0},
+        {
+            "id": "chunk_b",
+            "project": "PROJ",
+            "path": "src/b.py",
+            "content": "def bar(): pass",
+            "chunk_type": "function",
+            "symbol": "bar",
+            "start_line": 1,
+            "end_line": 5,
+            "language": "python",
+            "content_hash": "hash_chunk_b",
+            "bm25_score": 1.0,
+            "_bm25_rank": 0,
+        },
     ]
 
     result = store.search([0.1] * 10, top_k=5, query_text="bar")
@@ -144,11 +160,20 @@ def test_search_deduplicates_by_content_hash():
 
     mock_client.search.return_value = [_qdrant_hit("id1", 0.90)]
     mock_pg.search_bm25.return_value = [
-        {"id": "id1", "project": "PROJ", "path": "src/a.py",
-         "content": "def foo(): pass", "chunk_type": "function",
-         "symbol": "foo", "start_line": 1, "end_line": 2,
-         "language": "python", "content_hash": "hash_id1", "bm25_score": 1.0,
-         "_bm25_rank": 0},
+        {
+            "id": "id1",
+            "project": "PROJ",
+            "path": "src/a.py",
+            "content": "def foo(): pass",
+            "chunk_type": "function",
+            "symbol": "foo",
+            "start_line": 1,
+            "end_line": 2,
+            "language": "python",
+            "content_hash": "hash_id1",
+            "bm25_score": 1.0,
+            "_bm25_rank": 0,
+        },
     ]
 
     result = store.search([0.1] * 10, top_k=5, query_text="foo")

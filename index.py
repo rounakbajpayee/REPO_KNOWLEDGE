@@ -13,6 +13,7 @@ Usage:
 """
 
 import time
+
 import click
 
 from repo_knowledge.knowledge import KnowledgeService
@@ -35,7 +36,9 @@ def main(project: str | None, root: str | None) -> None:
     else:
         discovered = scan_projects(svc._projects_root)
         projects_to_index = [p.name for p in discovered]
-        click.echo(f"Discovered {len(projects_to_index)} project(s): {', '.join(projects_to_index)}")
+        click.echo(
+            f"Discovered {len(projects_to_index)} project(s): {', '.join(projects_to_index)}"
+        )
 
     t_total = time.monotonic()
     for name in projects_to_index:
@@ -45,18 +48,35 @@ def main(project: str | None, root: str | None) -> None:
         elapsed = round(time.monotonic() - t0, 1)
         if "error" in result:
             click.secho(f"  [ERROR] {result['error']} ({elapsed}s)", fg="red")
-            trace("cli_index_error", subsystem="cli", severity="ERROR", project=name, error=result["error"], duration_s=elapsed)
+            trace(
+                "cli_index_error",
+                subsystem="cli",
+                severity="ERROR",
+                project=name,
+                error=result["error"],
+                duration_s=elapsed,
+            )
         else:
             click.secho(
                 f"  [OK] {result['message']} ({elapsed}s)",
                 fg="green",
             )
-            trace("cli_index_success", subsystem="cli", project=name,
-                  chunks=result["chunks_indexed"], duration_s=elapsed)
+            trace(
+                "cli_index_success",
+                subsystem="cli",
+                project=name,
+                chunks=result["chunks_indexed"],
+                duration_s=elapsed,
+            )
 
     total_elapsed = round(time.monotonic() - t_total, 1)
     click.echo(f"\nDone in {total_elapsed}s.")
-    trace("cli_index_all_complete", subsystem="cli", projects=len(projects_to_index), duration_s=total_elapsed)
+    trace(
+        "cli_index_all_complete",
+        subsystem="cli",
+        projects=len(projects_to_index),
+        duration_s=total_elapsed,
+    )
 
 
 if __name__ == "__main__":
