@@ -4,7 +4,7 @@ import psycopg2
 import pytest
 from alembic.config import Config
 
-from alembic import command
+from alembic import command  # type: ignore[attr-defined]
 from repo_knowledge.config import (
     POSTGRES_DB,
     POSTGRES_HOST,
@@ -19,9 +19,13 @@ from repo_knowledge.config import (
 def tmp_pg():
     """Provides a clean test database by ensuring all tables are dropped beforehand."""
     # We use the config credentials which should point to the test db in CI
+
+    host = os.getenv("POSTGRES_HOST", POSTGRES_HOST)
+    port = int(os.getenv("POSTGRES_PORT", POSTGRES_PORT))
+
     conn = psycopg2.connect(
-        host=POSTGRES_HOST,
-        port=POSTGRES_PORT,
+        host=host,
+        port=port,
         user=POSTGRES_USER,
         password=POSTGRES_PASSWORD,
         dbname=POSTGRES_DB,
@@ -47,8 +51,8 @@ def tmp_pg():
 
     # Cleanup after test
     conn = psycopg2.connect(
-        host=POSTGRES_HOST,
-        port=POSTGRES_PORT,
+        host=host,
+        port=port,
         user=POSTGRES_USER,
         password=POSTGRES_PASSWORD,
         dbname=POSTGRES_DB,
@@ -70,9 +74,12 @@ def test_upgrade_creates_all_tables(tmp_pg):
     alembic_cfg = tmp_pg
     command.upgrade(alembic_cfg, "head")
 
+    host = os.getenv("POSTGRES_HOST", POSTGRES_HOST)
+    port = int(os.getenv("POSTGRES_PORT", POSTGRES_PORT))
+
     conn = psycopg2.connect(
-        host=POSTGRES_HOST,
-        port=POSTGRES_PORT,
+        host=host,
+        port=port,
         user=POSTGRES_USER,
         password=POSTGRES_PASSWORD,
         dbname=POSTGRES_DB,
@@ -105,9 +112,12 @@ def test_downgrade_drops_all_tables(tmp_pg):
     # Then downgrade to base
     command.downgrade(alembic_cfg, "base")
 
+    host = os.getenv("POSTGRES_HOST", POSTGRES_HOST)
+    port = int(os.getenv("POSTGRES_PORT", POSTGRES_PORT))
+
     conn = psycopg2.connect(
-        host=POSTGRES_HOST,
-        port=POSTGRES_PORT,
+        host=host,
+        port=port,
         user=POSTGRES_USER,
         password=POSTGRES_PASSWORD,
         dbname=POSTGRES_DB,
@@ -138,9 +148,12 @@ def test_upgrade_is_idempotent(tmp_pg):
     command.upgrade(alembic_cfg, "head")
     # To test IF NOT EXISTS semantics, we drop alembic_version and run it again.
 
+    host = os.getenv("POSTGRES_HOST", POSTGRES_HOST)
+    port = int(os.getenv("POSTGRES_PORT", POSTGRES_PORT))
+
     conn = psycopg2.connect(
-        host=POSTGRES_HOST,
-        port=POSTGRES_PORT,
+        host=host,
+        port=port,
         user=POSTGRES_USER,
         password=POSTGRES_PASSWORD,
         dbname=POSTGRES_DB,

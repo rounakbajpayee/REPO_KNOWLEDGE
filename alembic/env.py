@@ -1,9 +1,6 @@
-import sys
 from logging.config import fileConfig
 
-import psycopg2
 from alembic import context
-
 from repo_knowledge.config import (
     POSTGRES_DB,
     POSTGRES_HOST,
@@ -50,29 +47,32 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode.
 
-    Here we create a raw psycopg2 DBAPI connection and pass it to Alembic,
-    avoiding SQLAlchemy completely.
+    Here we configure Alembic to use a URL directly.
+    Alembic requires an Engine or a URL to work in online mode because it extracts
+    the dialect from the Engine. Passing a raw DBAPI connection directly to connection=
+    is not supported as it expects a SQLAlchemy connection. We will pass a URL instead.
     """
-    # Create DBAPI connection
-    conn = psycopg2.connect(
-        host=POSTGRES_HOST,
-        port=POSTGRES_PORT,
-        user=POSTGRES_USER,
-        password=POSTGRES_PASSWORD,
-        dbname=POSTGRES_DB,
-    )
+    import os
 
-    context.configure(
-        connection=conn,
-        target_metadata=target_metadata,
-        compare_type=True,
-    )
+    # We read env variables because tests might override POSTGRES_HOST / PORT
+    host = os.getenv("POSTGRES_HOST", POSTGRES_HOST)
+    port = int(os.getenv("POSTGRES_PORT", POSTGRES_PORT))
 
-    try:
+    url = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{host}:{port}/{POSTGRES_DB}"
+
+    from sqlalchemy import create_engine
+
+    connectable = create_engine(url)
+
+    with connectable.connect() as connection:
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+        )
+
         with context.begin_transaction():
             context.run_migrations()
-    finally:
-        conn.close()
 
 
 if context.is_offline_mode():

@@ -41,6 +41,9 @@ jobs:
           ruff check src/ tests/
 
       - name: Test with pytest
+        env:
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: 5434
         run: |
           PYTHONPATH=src pytest
 
