@@ -8,28 +8,24 @@ from repo_knowledge.postgres_store import PostgresStore
 
 @pytest.fixture(scope="session")
 def pg_connection():
-    # Connect to the database specified by environment variables
     conn = psycopg2.connect(
-        host=os.getenv("TEST_PG_HOST", "localhost"),
-        port=int(os.getenv("TEST_PG_PORT", "5432")),
-        user=os.getenv("TEST_PG_USER", "postgres"),
-        password=os.getenv("TEST_PG_PASSWORD", ""),
-        database=os.getenv("TEST_PG_DB", "repo_knowledge_test"),
+        host=os.getenv("POSTGRES_HOST", "localhost"),
+        port=int(os.getenv("POSTGRES_PORT", "5432")),
+        user=os.getenv("POSTGRES_USER", "postgres"),
+        password=os.getenv("POSTGRES_PASSWORD", ""),
+        database=os.getenv("POSTGRES_DB", "repo_knowledge_test"),
     )
     conn.autocommit = False
 
-    # Instantiate store and use its _ensure_tables via this connection
-    # to create tables if they don't exist yet in the test DB
-    # We do it by NOT passing the connection directly, so that
-    # the store actually creates the tables.
+    # Run migrations via a fresh store instance (not using the injected connection)
+    # so that the test DB schema is set up before any tests run.
     store = PostgresStore(
-        host=os.getenv("TEST_PG_HOST", "localhost"),
-        port=int(os.getenv("TEST_PG_PORT", "5432")),
-        user=os.getenv("TEST_PG_USER", "postgres"),
-        password=os.getenv("TEST_PG_PASSWORD", ""),
-        database=os.getenv("TEST_PG_DB", "repo_knowledge_test"),
+        host=os.getenv("POSTGRES_HOST", "localhost"),
+        port=int(os.getenv("POSTGRES_PORT", "5432")),
+        user=os.getenv("POSTGRES_USER", "postgres"),
+        password=os.getenv("POSTGRES_PASSWORD", ""),
+        database=os.getenv("POSTGRES_DB", "repo_knowledge_test"),
     )
-    # The _ensure_tables method will run the DDL queries
     store._ensure_tables()
 
     yield conn
