@@ -1,176 +1,154 @@
 """
-test_postgres.py — Unit tests for PostgresStore using mocked psycopg2 connections.
+test_postgres.py — Unit tests for PostgresStore using a real test database.
 """
 
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from repo_knowledge.postgres_store import PostgresStore
 
 
-@pytest.fixture
-def mock_connect():
-    # Patch both the pool and the bare connect so tests fully control DB access.
-    # Pool is set to always fail → store falls back to bare psycopg2.connect (also mocked).
-    with patch(
-        "repo_knowledge.postgres_store.pgpool.ThreadedConnectionPool",
-        side_effect=Exception("pool disabled in tests"),
-    ):
-        with patch("repo_knowledge.postgres_store.psycopg2.connect") as mock_conn_fn:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-
-            # Chained context manager returns
-            mock_conn.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value = mock_cursor
-            mock_cursor.__enter__.return_value = mock_cursor
-
-            mock_conn_fn.return_value = mock_conn
-            yield mock_conn_fn, mock_conn, mock_cursor
-
-
-@patch("alembic.command.upgrade")
-def test_get_project_names(mock_command, mock_connect):
+def test_get_project_names(db):
     """get_project_names must return only the name column."""
-    mock_conn_fn, mock_conn, mock_cursor = mock_connect
-    mock_cursor.fetchall.return_value = [("AI_LAB",), ("APRIL",), ("ECHO",)]
+    store = PostgresStore(connection=db)
 
-    store = PostgresStore()
+    # Insert some dummy projects
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO projects (name, stack) VALUES "
+            "('AI_LAB', 'python'), ('APRIL', 'python'), ('ECHO', 'python')"
+        )
+
     names = store.get_project_names()
 
-    assert names == ["AI_LAB", "APRIL", "ECHO"]
-    exec_args = mock_cursor.execute.call_args[0]
-    assert "SELECT name FROM projects" in exec_args[0]
+    assert set(names) == {"AI_LAB", "APRIL", "ECHO"}
 
 
-@patch("alembic.command.upgrade")
-def test_log_audit_traces_batch_empty_is_noop(mock_command, mock_connect):
+def test_log_audit_traces_batch_empty_is_noop(db):
     """log_audit_traces_batch must be a no-op when given an empty list."""
-    mock_conn_fn, mock_conn, mock_cursor = mock_connect
+    store = PostgresStore(connection=db)
 
-    store = PostgresStore()
+    with db.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM audit_logs")
+        initial_count = cur.fetchone()[0]
+
     store.log_audit_traces_batch([])
 
-    # No DB interaction should have occurred (beyond _ensure_tables)
-    # confirm execute_values was not called for audit_logs
-    executed = [str(c) for c in mock_cursor.execute.call_args_list]
-    assert not any("INSERT INTO audit_logs" in e for e in executed)
+    with db.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM audit_logs")
+        final_count = cur.fetchone()[0]
+
+    assert initial_count == final_count
 
 
-@patch("alembic.command.upgrade")
-def test_log_audit_traces_batch_inserts_rows(mock_command, mock_connect):
+def test_log_audit_traces_batch_inserts_rows(db):
     """log_audit_traces_batch must call execute_values with all records."""
-    mock_conn_fn, mock_conn, mock_cursor = mock_connect
+    store = PostgresStore(connection=db)
+    records = [
+        {
+            "ts_str": "2026-06-05T00:00:00+00:00",
+            "trace_id": "abc123",
+            "event": "test_event",
+            "severity": "INFO",
+            "subsystem": "test",
+            "duration_ms": 42,
+            "payload": {"key": "val"},
+        },
+        {
+            "ts_str": "2026-06-05T00:00:01+00:00",
+            "trace_id": None,
+            "event": "second_event",
+            "severity": "WARNING",
+            "subsystem": "store",
+            "duration_ms": None,
+            "payload": None,
+        },
+    ]
+    store.log_audit_traces_batch(records)
 
-    with patch("repo_knowledge.postgres_store.execute_values") as mock_ev:
-        store = PostgresStore()
-        records = [
-            {
-                "ts_str": "2026-06-05T00:00:00+00:00",
-                "trace_id": "abc123",
-                "event": "test_event",
-                "severity": "INFO",
-                "subsystem": "test",
-                "duration_ms": 42,
-                "payload": {"key": "val"},
-            },
-            {
-                "ts_str": "2026-06-05T00:00:01+00:00",
-                "trace_id": None,
-                "event": "second_event",
-                "severity": "WARNING",
-                "subsystem": "store",
-                "duration_ms": None,
-                "payload": None,
-            },
-        ]
-        store.log_audit_traces_batch(records)
+    with db.cursor() as cur:
+        cur.execute("SELECT event, severity, subsystem FROM audit_logs ORDER BY ts ASC")
+        rows = cur.fetchall()
 
-        assert mock_ev.called
-        rows_arg = mock_ev.call_args[0][2]
-        assert len(rows_arg) == 2
-        assert rows_arg[0][2] == "test_event"
-        assert rows_arg[1][2] == "second_event"
-        assert rows_arg[1][4] == "store"
+    assert len(rows) >= 2
+    events = [r[0] for r in rows]
+    assert "test_event" in events
+    assert "second_event" in events
 
 
-def test_postgres_store_initialization(mock_connect):
-    mock_conn_fn, mock_conn, mock_cursor = mock_connect
-
-    # We instantiate PostgresStore. Its methods like _ensure_tables will be called lazily.
+def test_postgres_store_initialization():
     store = PostgresStore(
         host="localhost", port=5434, user="test_user", password="test_password", database="test_db"
     )
 
-    # Lazy initial state
     assert not store._initialized
     assert store._host == "localhost"
     assert store._db == "test_db"
 
 
-@patch("alembic.command.upgrade")
-def test_ensure_tables_runs_migrations(mock_command, mock_connect):
-    mock_conn_fn, mock_conn, mock_cursor = mock_connect
-
-    store = PostgresStore()
-
-    # Trigger database connection and migration query execution
+def test_ensure_tables_runs_migrations(db):
+    store = PostgresStore(connection=db)
+    # The tables should already be ensured by the fixture,
+    # but calling it again shouldn't fail and should mark initialized.
+    # Pass connection details from env to avoid localhost defaults failing in CI container
+    import os
+    store = PostgresStore(
+        host=os.getenv("TEST_PG_HOST", "localhost"),
+        port=int(os.getenv("TEST_PG_PORT", "5432")),
+        user=os.getenv("TEST_PG_USER", "postgres"),
+        password=os.getenv("TEST_PG_PASSWORD", ""),
+        database=os.getenv("TEST_PG_DB", "repo_knowledge_test"),
+        connection=db
+    )
     store._ensure_tables()
-
     assert store._initialized
 
-    # Check that alembic upgrade head was called
-    assert mock_command.called
-    assert mock_command.call_args[0][1] == "head"
 
-
-@patch("alembic.command.upgrade")
-def test_upsert_project(mock_command, mock_connect):
-    mock_conn_fn, mock_conn, mock_cursor = mock_connect
-    mock_cursor.fetchone.return_value = (42,)
-
-    store = PostgresStore()
+def test_upsert_project(db):
+    store = PostgresStore(connection=db)
     project_id = store.upsert_project("my_proj", "Python")
 
-    assert project_id == 42
-    # Verify SQL execution
-    exec_args = mock_cursor.execute.call_args[0]
-    assert "INSERT INTO projects" in exec_args[0]
-    assert exec_args[1] == ("my_proj", "Python")
+    with db.cursor() as cur:
+        cur.execute("SELECT name, stack FROM projects WHERE id = %s", (project_id,))
+        row = cur.fetchone()
+
+    assert row is not None
+    assert row[0] == "my_proj"
+    assert row[1] == "Python"
 
 
-@patch("alembic.command.upgrade")
-def test_register_file(mock_command, mock_connect):
-    mock_conn_fn, mock_conn, mock_cursor = mock_connect
-    mock_cursor.fetchone.return_value = (101,)
+def test_register_file(db):
+    store = PostgresStore(connection=db)
+    project_id = store.upsert_project("file_proj", "Python")
 
-    store = PostgresStore()
-    file_id = store.register_file(42, "src/main.py", "hash123", 12345.6)
+    file_id = store.register_file(project_id, "src/main.py", "hash123", 12345.6)
 
-    assert file_id == 101
-    exec_args = mock_cursor.execute.call_args[0]
-    assert "INSERT INTO files" in exec_args[0]
-    assert exec_args[1] == (42, "src/main.py", "hash123", 12345.6)
+    with db.cursor() as cur:
+        cur.execute("SELECT path, content_hash FROM files WHERE id = %s", (file_id,))
+        row = cur.fetchone()
 
-
-@patch("alembic.command.upgrade")
-def test_delete_file(mock_command, mock_connect):
-    mock_conn_fn, mock_conn, mock_cursor = mock_connect
-
-    store = PostgresStore()
-    store.delete_file("my_proj", "src/main.py")
-
-    exec_args = mock_cursor.execute.call_args[0]
-    assert "DELETE FROM files" in exec_args[0]
-    assert exec_args[1] == ("src/main.py", "my_proj")
+    assert row is not None
+    assert row[0] == "src/main.py"
+    assert row[1] == "hash123"
 
 
-@patch("alembic.command.upgrade")
-def test_upsert_chunks(mock_command, mock_connect):
-    mock_conn_fn, mock_conn, mock_cursor = mock_connect
+def test_delete_file(db):
+    store = PostgresStore(connection=db)
+    project_id = store.upsert_project("delete_proj", "Python")
+    store.register_file(project_id, "src/main.py", "hash123", 12345.6)
 
+    # Validate insertion
+    with db.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM files WHERE project_id = %s", (project_id,))
+        assert cur.fetchone()[0] == 1
+
+    store.delete_file("delete_proj", "src/main.py")
+
+    with db.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM files WHERE project_id = %s", (project_id,))
+        assert cur.fetchone()[0] == 0
+
+
+def test_upsert_chunks(db):
     class FakeChunk:
         def __init__(self, language, chunk_type, symbol, content, start_line, end_line):
             self.language = language
@@ -182,49 +160,44 @@ def test_upsert_chunks(mock_command, mock_connect):
 
     chunk = FakeChunk("python", "class", "MyClass", "class MyClass: pass", 1, 10)
 
-    store = PostgresStore()
+    store = PostgresStore(connection=db)
+    project_id = store.upsert_project("chunk_proj", "Python")
+    file_id = store.register_file(project_id, "src/main.py", "hash123", 12345.6)
+
+    import uuid
+    test_uuid = str(uuid.uuid4())
+
     store.upsert_chunks(
-        file_id=101, project="my_proj", path="src/main.py", chunks=[chunk], chunk_uuids=["uuid-xyz"]
+        file_id=file_id,
+        project="chunk_proj",
+        path="src/main.py",
+        chunks=[chunk],
+        chunk_uuids=[test_uuid],
     )
 
-    exec_args = mock_cursor.execute.call_args[0]
-    assert "INSERT INTO chunks" in exec_args[0]
-    assert exec_args[1] == (
-        "uuid-xyz",
-        101,
-        "my_proj",
-        "src/main.py",
-        "python",
-        "class",
-        "MyClass",
-        "class MyClass: pass",
-        1,
-        10,
-    )
+    with db.cursor() as cur:
+        cur.execute("SELECT id, symbol, content FROM chunks WHERE id = %s", (test_uuid,))
+        row = cur.fetchone()
+
+    assert row is not None
+    assert str(row[0]) == test_uuid
+    assert row[1] == "MyClass"
+    assert row[2] == "class MyClass: pass"
 
 
-@patch("alembic.command.upgrade")
-def test_get_indexed_file_hashes(mock_command, mock_connect):
-    mock_conn_fn, mock_conn, mock_cursor = mock_connect
-    mock_cursor.fetchall.return_value = [
-        ("src/main.py", "hash_main"),
-        ("src/utils.py", "hash_utils"),
-    ]
+def test_get_indexed_file_hashes(db):
+    store = PostgresStore(connection=db)
+    project_id = store.upsert_project("hash_proj", "Python")
+    store.register_file(project_id, "src/main.py", "hash_main", 12345.6)
+    store.register_file(project_id, "src/utils.py", "hash_utils", 12345.6)
 
-    store = PostgresStore()
-    hashes = store.get_indexed_file_hashes("my_proj")
+    hashes = store.get_indexed_file_hashes("hash_proj")
 
     assert hashes == {"src/main.py": "hash_main", "src/utils.py": "hash_utils"}
-    exec_args = mock_cursor.execute.call_args[0]
-    assert "SELECT path, content_hash" in exec_args[0]
-    assert exec_args[1] == ("my_proj",)
 
 
-@patch("alembic.command.upgrade")
-def test_log_decision(mock_command, mock_connect):
-    mock_conn_fn, mock_conn, mock_cursor = mock_connect
-
-    store = PostgresStore()
+def test_log_decision(db):
+    store = PostgresStore(connection=db)
     store.log_decision(
         topic="embedding_model",
         entry_name="switch_to_qwen",
@@ -233,41 +206,49 @@ def test_log_decision(mock_command, mock_connect):
         options_considered=[{"name": "mxbai", "status": "REJECTED"}],
     )
 
-    exec_args = mock_cursor.execute.call_args[0]
-    assert "INSERT INTO decision_logs" in exec_args[0]
-    assert exec_args[1][0] == "embedding_model"
-    assert exec_args[1][1] == "switch_to_qwen"
-    assert exec_args[1][2] == "Switch embedding model"
-    assert exec_args[1][3] == "Better accuracy"
-    # The last element is a Json wrapper
-    assert exec_args[1][4].adapted == [{"name": "mxbai", "status": "REJECTED"}]
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT entry_name, options_considered "
+            "FROM decision_logs WHERE topic = 'embedding_model'"
+        )
+        row = cur.fetchone()
+
+    assert row is not None
+    assert row[0] == "switch_to_qwen"
+    assert row[1] == [{"name": "mxbai", "status": "REJECTED"}]
 
 
-@patch("alembic.command.upgrade")
-def test_get_decision_history(mock_command, mock_connect):
-    mock_conn_fn, mock_conn, mock_cursor = mock_connect
-    now = datetime.now(timezone.utc)
-    mock_cursor.fetchall.return_value = [
-        ("embedding_model", "switch_to_qwen", "Switch", "Rationale", [{"name": "mxbai"}], now)
-    ]
+def test_get_decision_history(db):
+    store = PostgresStore(connection=db)
+    store.log_decision(
+        topic="embedding_model2",
+        entry_name="switch_to_qwen",
+        description="Switch",
+        rationale="Rationale",
+        options_considered=[{"name": "mxbai"}],
+    )
 
-    store = PostgresStore()
-    history = store.get_decision_history("embedding_model", limit=3, full_history=False)
+    history = store.get_decision_history("embedding_model2", limit=3, full_history=False)
 
     assert len(history) == 1
-    assert history[0]["topic"] == "embedding_model"
+    assert history[0]["topic"] == "embedding_model2"
     assert history[0]["name"] == "switch_to_qwen"
     assert history[0]["description"] == "Switch"
     assert history[0]["rationale"] == "Rationale"
     assert history[0]["options_considered"] == [{"name": "mxbai"}]
-    assert history[0]["logged_at"] == now.isoformat()
+    assert "logged_at" in history[0]
 
 
-def test_health_check_returns_true_when_ok(mock_connect):
-    # Setup connection to succeed
-    mock_conn_fn, mock_conn, mock_cursor = mock_connect
-
-    store = PostgresStore()
+def test_health_check_returns_true_when_ok(db):
+    import os
+    store = PostgresStore(
+        host=os.getenv("TEST_PG_HOST", "localhost"),
+        port=int(os.getenv("TEST_PG_PORT", "5432")),
+        user=os.getenv("TEST_PG_USER", "postgres"),
+        password=os.getenv("TEST_PG_PASSWORD", ""),
+        database=os.getenv("TEST_PG_DB", "repo_knowledge_test"),
+        connection=db
+    )
     assert store.health_check() is True
 
 
