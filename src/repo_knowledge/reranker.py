@@ -22,12 +22,7 @@ from repo_knowledge.config import RERANK_MODEL
 
 log = logging.getLogger(__name__)
 
-try:
-    import sentence_transformers  # type: ignore[import]  # noqa: F401
-except ImportError:
-    log.warning(
-        "Reranker unavailable: sentence-transformers not installed. Install with: pip install repo-knowledge[reranker]"  # noqa: E501
-    )
+
 
 
 # ── Singleton loader ──────────────────────────────────────────────────────────
@@ -52,6 +47,7 @@ def _load_model() -> Any | None:
             return None
 
         try:
+            import sentence_transformers  # type: ignore[import]  # noqa: F401
             from sentence_transformers import CrossEncoder  # type: ignore[import]
 
             try:
@@ -61,6 +57,9 @@ def _load_model() -> Any | None:
                 # Fallback to downloading/checking online if not cached locally
                 _model = CrossEncoder(RERANK_MODEL, local_files_only=False)
         except ImportError:
+            log.warning(
+                "Reranker unavailable: sentence-transformers not installed. Install with: pip install repo-knowledge[reranker]"  # noqa: E501
+            )
             _model_failed = True
             return None
         except Exception:

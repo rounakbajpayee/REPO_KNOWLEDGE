@@ -23,13 +23,16 @@ def tmp_pg():
     host = os.getenv("POSTGRES_HOST", POSTGRES_HOST)
     port = int(os.getenv("POSTGRES_PORT", POSTGRES_PORT))
 
-    conn = psycopg2.connect(
-        host=host,
-        port=port,
-        user=POSTGRES_USER,
-        password=POSTGRES_PASSWORD,
-        dbname=POSTGRES_DB,
-    )
+    try:
+        conn = psycopg2.connect(
+            host=host,
+            port=port,
+            user=POSTGRES_USER,
+            password=POSTGRES_PASSWORD,
+            dbname=POSTGRES_DB,
+        )
+    except psycopg2.OperationalError as e:
+        pytest.skip(f"Postgres database is offline/unreachable: {e}")
 
     # Drop existing tables to start clean
     with conn:
@@ -50,13 +53,16 @@ def tmp_pg():
     yield alembic_cfg
 
     # Cleanup after test
-    conn = psycopg2.connect(
-        host=host,
-        port=port,
-        user=POSTGRES_USER,
-        password=POSTGRES_PASSWORD,
-        dbname=POSTGRES_DB,
-    )
+    try:
+        conn = psycopg2.connect(
+            host=host,
+            port=port,
+            user=POSTGRES_USER,
+            password=POSTGRES_PASSWORD,
+            dbname=POSTGRES_DB,
+        )
+    except psycopg2.OperationalError:
+        return
 
     with conn:
         with conn.cursor() as cur:
@@ -68,6 +74,7 @@ def tmp_pg():
             cur.execute("DROP TABLE IF EXISTS alembic_version CASCADE;")
 
     conn.close()
+
 
 
 def test_upgrade_creates_all_tables(tmp_pg):
