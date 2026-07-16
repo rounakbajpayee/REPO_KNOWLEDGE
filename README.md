@@ -2,7 +2,7 @@
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
-[![Coverage](https://img.shields.io/badge/coverage-90%25-success.svg)](https://github.com)
+[![Status](https://img.shields.io/badge/status-active-success.svg)](#)
 
 
 Local-first semantic memory layer for codebases. Indexes Git repositories and exposes search capabilities via MCP to coding agents (Claude, Codex, OpenCode, etc.).
@@ -17,11 +17,23 @@ Local-first semantic memory layer for codebases. Indexes Git repositories and ex
 Projects Folder → Scanner → Chunker → Embedder → Qdrant
                                                       ↕
                         MCP Server ← KnowledgeService
-                              ↕
+                               ↕
                     Claude / Codex / OpenCode
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for component details and design decisions.
+
+---
+
+## Tech Stack
+
+| Layer | Choice | Rationale |
+|---|---|---|
+| **Vector DB** | Qdrant | Fast vector search index supporting metadata payloads and high-speed similarity queries |
+| **Relational Store** | PostgreSQL | Handles repository metadata, file paths, and sync state tracking |
+| **Model Engine** | Ollama | Offloads embedding generation locally without cloud API dependency or latency |
+| **MCP Engine** | `mcp` Python SDK | Conforms to Model Context Protocol specs for plug-and-play agent integration |
+| **Dashboard API** | FastAPI + Uvicorn | Lightweight, asynchronous web service and monitoring API |
 
 ---
 
