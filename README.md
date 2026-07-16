@@ -145,8 +145,8 @@ Wipe Qdrant vector index and re-embed all code chunks from the PostgreSQL store 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `QDRANT_URL` | `http://100.70.3.86:6333` | Qdrant via Tailscale |
-| `OLLAMA_URL` | `http://100.70.3.86:11434` | Ollama via Tailscale |
+| `QDRANT_URL` | `http://<your-host>:6333` | Qdrant endpoint (local or Tailscale) |
+| `OLLAMA_URL` | `http://<your-host>:11434` | Ollama endpoint (local or Tailscale) |
 | `EMBEDDING_MODEL` | `nomic-embed-text` | Ollama model name |
 | `EMBEDDING_DIM` | `768` | Must match model (nomic=768, qwen3=1024) |
 | `QDRANT_COLLECTION` | `code_chunks_nomic` | Include model slug for benchmarking |
@@ -157,7 +157,7 @@ Wipe Qdrant vector index and re-embed all code chunks from the PostgreSQL store 
 | `RERANK_ENABLED` | `true` | Set to false to disable Cross-Encoder reranking |
 | `RERANK_FETCH_K` | `40` | Candidate pool size retrieved from hybrid recall |
 | `RERANK_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | CPU-friendly cross-encoder model name |
-| `REDIS_URL` | `redis://192.168.0.234:6379/0` | Optional Redis cache server connection string |
+| `REDIS_URL` | `redis://localhost:6379/0` | Optional Redis cache server connection string |
 | `REDIS_TTL_S` | `300` | Redis cached search result time-to-live in seconds |
 
 ---
