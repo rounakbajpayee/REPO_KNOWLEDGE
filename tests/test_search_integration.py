@@ -2,7 +2,7 @@ import logging
 import time
 from unittest.mock import MagicMock, patch
 
-from repo_knowledge.config import OLLAMA_URL, QDRANT_URL
+from repo_knowledge.config import OLLAMA_URL
 from repo_knowledge.knowledge import KnowledgeService
 
 logging.basicConfig(level=logging.INFO)
@@ -11,7 +11,6 @@ logging.basicConfig(level=logging.INFO)
 @patch("repo_knowledge.knowledge.Store")
 @patch("repo_knowledge.knowledge.default_embedder")
 def test_search_integration(mock_default_embedder, mock_store_class):
-    print(f"QDRANT_URL: {QDRANT_URL}")
     print(f"OLLAMA_URL: {OLLAMA_URL}")
 
     # Set up mocks

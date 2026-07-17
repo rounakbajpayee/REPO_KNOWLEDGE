@@ -5,7 +5,7 @@ Tests _rrf_fuse() directly and verifies Store.search() calls BM25 when
 query_text is provided and handles BM25 failures gracefully.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from repo_knowledge.store import Store, _rrf_fuse
 
@@ -14,22 +14,22 @@ from repo_knowledge.store import Store, _rrf_fuse
 
 def test_rrf_fuse_returns_sorted_descending():
     all_ids = {"a", "b", "c"}
-    qdrant = {"a": {"_qdrant_rank": 0}, "b": {"_qdrant_rank": 1}, "c": {"_qdrant_rank": 2}}
+    vector = {"a": {"_vector_rank": 0}, "b": {"_vector_rank": 1}, "c": {"_vector_rank": 2}}
     bm25 = {"a": {"_bm25_rank": 2}, "b": {"_bm25_rank": 0}, "c": {"_bm25_rank": 1}}
 
-    result = _rrf_fuse(all_ids, qdrant, bm25)
+    result = _rrf_fuse(all_ids, vector, bm25)
 
     scores = [s for _, s in result]
     assert scores == sorted(scores, reverse=True)
 
 
 def test_rrf_chunk_in_both_lists_scores_higher_than_single_list():
-    """A chunk in both Qdrant and BM25 at rank-0 must outscore one only in Qdrant."""
-    qdrant = {"dual": {"_qdrant_rank": 0}, "solo": {"_qdrant_rank": 1}}
+    """A chunk in both pgvector and BM25 at rank-0 must outscore one only in pgvector."""
+    vector = {"dual": {"_vector_rank": 0}, "solo": {"_vector_rank": 1}}
     bm25 = {"dual": {"_bm25_rank": 0}}
     all_ids = {"dual", "solo"}
 
-    result = dict(_rrf_fuse(all_ids, qdrant, bm25))
+    result = dict(_rrf_fuse(all_ids, vector, bm25))
 
     assert result["dual"] > result["solo"]
 
@@ -39,43 +39,39 @@ def test_rrf_fuse_empty_inputs():
     assert result == []
 
 
-def test_rrf_fuse_qdrant_only():
+def test_rrf_fuse_vector_only():
     """When BM25 is empty every chunk receives the BM25 penalty rank."""
-    qdrant = {"a": {"_qdrant_rank": 0}, "b": {"_qdrant_rank": 1}}
-    result = _rrf_fuse({"a", "b"}, qdrant, {})
+    vector = {"a": {"_vector_rank": 0}, "b": {"_vector_rank": 1}}
+    result = _rrf_fuse({"a", "b"}, vector, {})
     ids = [cid for cid, _ in result]
-    # "a" was rank-0 in Qdrant, so it should beat "b" rank-1
+    # "a" was rank-0 in vector, so it should beat "b" rank-1
     assert ids[0] == "a"
 
 
 def test_rrf_fuse_k_parameter_affects_scores():
     """Higher k smooths the score differences between ranks."""
-    qdrant = {"a": {"_qdrant_rank": 0}, "b": {"_qdrant_rank": 1}}
-    r_k60 = dict(_rrf_fuse({"a", "b"}, qdrant, {}, k=60))
-    r_k1 = dict(_rrf_fuse({"a", "b"}, qdrant, {}, k=1))
+    vector = {"a": {"_vector_rank": 0}, "b": {"_vector_rank": 1}}
+    r_k60 = dict(_rrf_fuse({"a", "b"}, vector, {}, k=60))
+    r_k1 = dict(_rrf_fuse({"a", "b"}, vector, {}, k=1))
     # With k=1 the gap between rank-0 and rank-1 is larger
     gap_k1 = r_k1["a"] - r_k1["b"]
     gap_k60 = r_k60["a"] - r_k60["b"]
     assert gap_k1 > gap_k60
 
 
-# ── Store.search integration (mocked Qdrant + Postgres) ───────────────────────
+# ── Store.search integration (mocked Postgres) ───────────────────────
 
 
 def _make_store():
-    mock_client = MagicMock()
     mock_pg = MagicMock()
-    with patch("repo_knowledge.store.QdrantClient", return_value=mock_client):
-        store = Store(url="http://mock:6333", postgres_store=mock_pg)
-    store._collection_ready = True
-    return store, mock_client, mock_pg
+    store = Store(postgres_store=mock_pg)
+    return store, mock_pg
 
 
-def _qdrant_hit(chunk_id: str, score: float, content: str = "def foo(): pass") -> MagicMock:
-    hit = MagicMock()
-    hit.id = chunk_id
-    hit.score = score
-    hit.payload = {
+def _vector_hit(chunk_id: str, score: float, content: str = "def foo(): pass") -> dict:
+    return {
+        "id": chunk_id,
+        "score": score,
         "project": "PROJ",
         "path": "src/a.py",
         "content": content,
@@ -84,12 +80,11 @@ def _qdrant_hit(chunk_id: str, score: float, content: str = "def foo(): pass") -
         "content_hash": f"hash_{chunk_id}",
         "file_mtime": 0.0,
     }
-    return hit
 
 
 def test_search_calls_bm25_when_query_text_provided():
-    store, mock_client, mock_pg = _make_store()
-    mock_client.search.return_value = [_qdrant_hit("abc", 0.85)]
+    store, mock_pg = _make_store()
+    mock_pg.search_vector.return_value = [_vector_hit("abc", 0.85)]
     mock_pg.search_bm25.return_value = []
 
     store.search([0.1] * 10, top_k=5, query_text="auth middleware")
@@ -102,8 +97,8 @@ def test_search_calls_bm25_when_query_text_provided():
 
 
 def test_search_skips_bm25_when_no_query_text():
-    store, mock_client, mock_pg = _make_store()
-    mock_client.search.return_value = [_qdrant_hit("abc", 0.85)]
+    store, mock_pg = _make_store()
+    mock_pg.search_vector.return_value = [_vector_hit("abc", 0.85)]
 
     store.search([0.1] * 10, top_k=5)
 
@@ -111,23 +106,23 @@ def test_search_skips_bm25_when_no_query_text():
 
 
 def test_search_degrades_gracefully_when_bm25_raises():
-    store, mock_client, mock_pg = _make_store()
-    mock_client.search.return_value = [_qdrant_hit("abc", 0.85)]
+    store, mock_pg = _make_store()
+    mock_pg.search_vector.return_value = [_vector_hit("abc", 0.85)]
     mock_pg.search_bm25.side_effect = Exception("DB offline")
 
-    # Must not raise — returns Qdrant-only results
+    # Must not raise — returns vector-only results
     result = store.search([0.1] * 10, top_k=5, query_text="query")
     assert len(result) >= 1
 
 
 def test_search_rrf_promotes_dual_list_chunks():
-    """A chunk in both Qdrant and BM25 must appear before one only in Qdrant."""
-    store, mock_client, mock_pg = _make_store()
+    """A chunk in both pgvector and BM25 must appear before one only in pgvector."""
+    store, mock_pg = _make_store()
 
-    # Qdrant returns chunk_a (rank 0) and chunk_b (rank 1)
-    mock_client.search.return_value = [
-        _qdrant_hit("chunk_a", 0.90),
-        _qdrant_hit("chunk_b", 0.75),
+    # pgvector returns chunk_a (rank 0) and chunk_b (rank 1)
+    mock_pg.search_vector.return_value = [
+        _vector_hit("chunk_a", 0.90),
+        _vector_hit("chunk_b", 0.75),
     ]
     # BM25 only returns chunk_b (rank 0) — makes it a dual-list hit
     mock_pg.search_bm25.return_value = [
@@ -156,9 +151,9 @@ def test_search_rrf_promotes_dual_list_chunks():
 
 def test_search_deduplicates_by_content_hash():
     """Chunks with the same content_hash appearing in both lists must be deduplicated."""
-    store, mock_client, mock_pg = _make_store()
+    store, mock_pg = _make_store()
 
-    mock_client.search.return_value = [_qdrant_hit("id1", 0.90)]
+    mock_pg.search_vector.return_value = [_vector_hit("id1", 0.90)]
     mock_pg.search_bm25.return_value = [
         {
             "id": "id1",
