@@ -35,7 +35,8 @@ class Embedder(Protocol):
 
 class OllamaEmbedder:
     """
-    Embedder backed by a locally running Ollama instance.
+    Embedder backed by a locally running RapidMLX / OpenAI-compatible instance.
+    (Kept name OllamaEmbedder for backward compatibility with existing usages).
 
     Raises RuntimeError on connection failure or unexpected response —
     callers should handle this and surface clean errors to agents.
@@ -67,46 +68,47 @@ class OllamaEmbedder:
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """
-        Embed a list of texts in a single Ollama request.
-        Ollama /api/embed supports batched input natively.
+        Embed a list of texts in a single RapidMLX/OpenAI request.
         """
         try:
             trace_id = get_trace_id()
             headers = {"X-Trace-ID": trace_id} if trace_id else None
             response = self._client.post(
-                f"{self._url}/api/embed",
+                f"{self._url}/v1/embeddings",
                 json={"model": self._model, "input": texts},
                 headers=headers,
             )
             response.raise_for_status()
         except httpx.TimeoutException as e:
             raise RuntimeError(
-                f"Ollama timed out embedding with model '{self._model}'. "
+                f"RapidMLX timed out embedding with model '{self._model}'. "
                 f"Large models take 60-90s on first load. "
                 f"Current timeout: {self._client.timeout.read}s. "
                 "Increase OLLAMA_TIMEOUT in .env if this persists."
             ) from e
         except httpx.ConnectError as e:
             raise RuntimeError(
-                f"Cannot reach Ollama at {self._url}. "
-                "Check that Ollama is running and accessible via Tailscale/LAN."
+                f"Cannot reach RapidMLX at {self._url}. "
+                "Check that it is running and accessible."
             ) from e
         except httpx.HTTPStatusError as e:
             raise RuntimeError(
-                f"Ollama returned HTTP {e.response.status_code}: {e.response.text}"
+                f"RapidMLX returned HTTP {e.response.status_code}: {e.response.text}"
             ) from e
 
         data = response.json()
-        embeddings = data.get("embeddings")
-        if not embeddings:
-            raise RuntimeError(f"Ollama returned no embeddings. Response: {data}")
+        data_list = data.get("data")
+        
+        if not data_list:
+            raise RuntimeError(f"RapidMLX returned no embeddings. Response: {data}")
 
+        embeddings = [item.get("embedding") for item in data_list]
         return embeddings
 
     def health_check(self) -> bool:
-        """Returns True if Ollama is reachable, False otherwise."""
+        """Returns True if RapidMLX is reachable, False otherwise."""
         try:
-            self._client.get(f"{self._url}/api/tags", timeout=5.0).raise_for_status()
+            self._client.get(f"{self._url}/v1/models", timeout=5.0).raise_for_status()
             return True
         except Exception:
             return False

@@ -191,10 +191,10 @@ def test_reindex_returns_chunk_count(svc):
 
 def test_reindex_embedder_failure_returns_error(svc, mock_embedder, mock_store):
     """Embedder failures must be caught and returned as error dicts."""
-    mock_embedder.embed_batch.side_effect = RuntimeError("Ollama is down")
+    mock_embedder.embed_batch.side_effect = RuntimeError("RapidMLX is down")
     result = svc.reindex_project("ALPHA")
     assert "error" in result
-    assert "Ollama" in result["error"]
+    assert "RapidMLX" in result["error"]
 
 
 def test_reindex_incremental_no_changes_returns_zero(svc, mock_store, fake_projects_root):
