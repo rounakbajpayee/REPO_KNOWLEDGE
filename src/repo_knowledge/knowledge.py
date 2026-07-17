@@ -267,6 +267,51 @@ class KnowledgeService:
             hit.pop("content", None)
         return results
 
+    def benchmark_embeddings(self, qa_pairs: list[dict]) -> dict:
+        """
+        Evaluate embeddings recall for a given list of QA pairs.
+        Each pair should be a dict with 'query' and 'expected_path'.
+        Returns Recall@5 and breakdown of hits/misses.
+        """
+        if not qa_pairs:
+            return {"recall_at_5": 0.0, "total_queries": 0, "hits": 0, "breakdown": []}
+
+        hits = 0
+        breakdown = []
+
+        for pair in qa_pairs:
+            query = pair.get("query", "")
+            expected_path = pair.get("expected_path", "")
+
+            # search top 5
+            results = self.search(query=query, top_k=5)
+
+            found = False
+            found_at_rank = None
+            for rank, res in enumerate(results, start=1):
+                if res.get("path") == expected_path:
+                    found = True
+                    found_at_rank = rank
+                    break
+
+            if found:
+                hits += 1
+
+            breakdown.append({
+                "query": query,
+                "expected_path": expected_path,
+                "hit": found,
+                "rank": found_at_rank
+            })
+
+        recall = (hits / len(qa_pairs)) * 100.0
+        return {
+            "recall_at_5": round(recall, 2),
+            "total_queries": len(qa_pairs),
+            "hits": hits,
+            "breakdown": breakdown
+        }
+
     def get_chunks_for_file(self, project_name: str, path: str) -> dict:
         chunks = self._store.get_chunks_for_path(project_name, path)
         if not chunks:

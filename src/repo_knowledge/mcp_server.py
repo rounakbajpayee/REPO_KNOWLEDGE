@@ -158,6 +158,12 @@ def _dispatch(
                 return {"error": "topic is required"}
             return svc.get_decision_history(topic, limit, full_history)
 
+        elif name == "benchmark_embeddings":
+            qa_pairs = arguments.get("qa_pairs", [])
+            if not isinstance(qa_pairs, list):
+                return {"error": "qa_pairs must be a list"}
+            return svc.benchmark_embeddings(qa_pairs)
+
         else:
             return {"error": f"Unknown tool: {name}"}
     finally:
@@ -439,6 +445,32 @@ async def list_tools() -> list[types.Tool]:
                 },
                 "required": ["topic"],
             },
+        ),
+        types.Tool(
+            name="benchmark_embeddings",
+            description=(
+                "Evaluate embeddings recall for a given list of QA pairs. "
+                "Each pair should contain a 'query' and an 'expected_path'. "
+                "Returns Recall@5 and a detailed breakdown of hits/misses."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "qa_pairs": {
+                        "type": "array",
+                        "description": "List of objects containing 'query' and 'expected_path'",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "query": {"type": "string"},
+                                "expected_path": {"type": "string"}
+                            },
+                            "required": ["query", "expected_path"]
+                        }
+                    }
+                },
+                "required": ["qa_pairs"]
+            }
         ),
     ]
 

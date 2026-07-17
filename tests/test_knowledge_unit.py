@@ -435,3 +435,36 @@ def test_get_chunks_for_file_unknown_project(svc, mock_store):
     mock_store.get_chunks_for_path.return_value = []
     res = svc.get_chunks_for_file("NOT_EXIST", "src/a.py")
     assert "error" in res
+
+
+def test_benchmark_embeddings_empty(svc):
+    res = svc.benchmark_embeddings([])
+    assert res["recall_at_5"] == 0.0
+    assert res["total_queries"] == 0
+    assert res["hits"] == 0
+
+
+def test_benchmark_embeddings_hits(svc, mock_store, mock_embedder):
+    mock_store.search.return_value = [
+        {"path": "src/main.py", "score": 0.9}
+    ]
+    qa_pairs = [{"query": "run", "expected_path": "src/main.py"}]
+    res = svc.benchmark_embeddings(qa_pairs)
+    assert res["recall_at_5"] == 100.0
+    assert res["total_queries"] == 1
+    assert res["hits"] == 1
+    assert res["breakdown"][0]["hit"] is True
+    assert res["breakdown"][0]["rank"] == 1
+
+
+def test_benchmark_embeddings_misses(svc, mock_store, mock_embedder):
+    mock_store.search.return_value = [
+        {"path": "src/other.py", "score": 0.9}
+    ]
+    qa_pairs = [{"query": "run", "expected_path": "src/main.py"}]
+    res = svc.benchmark_embeddings(qa_pairs)
+    assert res["recall_at_5"] == 0.0
+    assert res["total_queries"] == 1
+    assert res["hits"] == 0
+    assert res["breakdown"][0]["hit"] is False
+    assert res["breakdown"][0]["rank"] is None
