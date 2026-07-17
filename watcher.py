@@ -53,7 +53,11 @@ class ProjectChangeHandler(FileSystemEventHandler):
 
         # 2. Filter by ignored directories (e.g. .git, .venv, node_modules)
         for part in path.parts:
-            if part in IGNORE_DIRS or part.endswith(".egg-info") or part.startswith("."):
+            if (
+                part in IGNORE_DIRS
+                or part.endswith(".egg-info")
+                or part.startswith(".")
+            ):
                 return
 
         # 3. Determine the project name (the direct child folder of PROJECTS_ROOT)
@@ -107,15 +111,21 @@ class ProjectChangeHandler(FileSystemEventHandler):
             self.timer = None
 
         for name in projects_to_run:
-            click.secho(f"\n[WATCHER] Detected edits in '{name}'. Reindexing...", fg="cyan")
+            click.secho(
+                f"\n[WATCHER] Detected edits in '{name}'. Reindexing...", fg="cyan"
+            )
             t0 = time.monotonic()
             try:
                 result = self.service.reindex_project(name, force=False)
                 elapsed = round(time.monotonic() - t0, 1)
                 if "error" in result:
-                    click.secho(f"  [WATCHER ERROR] {result['error']} ({elapsed}s)", fg="red")
+                    click.secho(
+                        f"  [WATCHER ERROR] {result['error']} ({elapsed}s)", fg="red"
+                    )
                 else:
-                    click.secho(f"  [WATCHER OK] {result['message']} ({elapsed}s)", fg="green")
+                    click.secho(
+                        f"  [WATCHER OK] {result['message']} ({elapsed}s)", fg="green"
+                    )
             except Exception as e:
                 click.secho(f"  [WATCHER CRITICAL ERROR] {e}", fg="red")
 

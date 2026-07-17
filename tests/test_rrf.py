@@ -14,7 +14,11 @@ from repo_knowledge.store import Store, _rrf_fuse
 
 def test_rrf_fuse_returns_sorted_descending():
     all_ids = {"a", "b", "c"}
-    vector = {"a": {"_vector_rank": 0}, "b": {"_vector_rank": 1}, "c": {"_vector_rank": 2}}
+    vector = {
+        "a": {"_vector_rank": 0},
+        "b": {"_vector_rank": 1},
+        "c": {"_vector_rank": 2},
+    }
     bm25 = {"a": {"_bm25_rank": 2}, "b": {"_bm25_rank": 0}, "c": {"_bm25_rank": 1}}
 
     result = _rrf_fuse(all_ids, vector, bm25)
@@ -92,7 +96,8 @@ def test_search_calls_bm25_when_query_text_provided():
     mock_pg.search_bm25.assert_called_once()
     call_kwargs = mock_pg.search_bm25.call_args
     assert (
-        "auth middleware" in call_kwargs[0] or call_kwargs[1].get("query_text") == "auth middleware"
+        "auth middleware" in call_kwargs[0]
+        or call_kwargs[1].get("query_text") == "auth middleware"
     )
 
 

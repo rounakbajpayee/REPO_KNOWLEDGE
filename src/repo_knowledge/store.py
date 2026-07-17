@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime, timezone
 
 from repo_knowledge.chunker import Chunk
 from repo_knowledge.config import (
@@ -27,8 +26,10 @@ class Store:
 
     def upsert_chunks(self, chunks: list[Chunk], vectors: list[list[float]]) -> None:
         if len(chunks) != len(vectors):
-            raise ValueError(f"chunks ({len(chunks)}) and vectors ({len(vectors)}) length mismatch")
-        
+            raise ValueError(
+                f"chunks ({len(chunks)}) and vectors ({len(vectors)}) length mismatch"
+            )
+
         # Pre-generate UUIDs
         chunk_uuids = [str(uuid.uuid4()) for _ in chunks]
 
@@ -38,7 +39,9 @@ class Store:
             stack = "Python"
             langs = [c.language for c in chunks if c.language]
             # Ignore markdown and text if there are other languages present
-            filtered_langs = [lang for lang in langs if lang.lower() not in {"markdown", "text"}]
+            filtered_langs = [
+                lang for lang in langs if lang.lower() not in {"markdown", "text"}
+            ]
             if filtered_langs:
                 stack_lang = max(set(filtered_langs), key=filtered_langs.count)
             elif langs:
@@ -80,7 +83,14 @@ class Store:
                 just_chunks = [item[0] for item in c_list]
                 just_uuids = [item[1] for item in c_list]
                 just_vectors = [item[2] for item in c_list]
-                self._pg.upsert_chunks(file_id, chunks[0].project, path, just_chunks, just_uuids, just_vectors)
+                self._pg.upsert_chunks(
+                    file_id,
+                    chunks[0].project,
+                    path,
+                    just_chunks,
+                    just_uuids,
+                    just_vectors,
+                )
 
     def delete_project(self, project: str) -> None:
         self._pg.delete_project(project)
@@ -119,8 +129,10 @@ class Store:
         # ── Pure dense vector search path ─────────────────────────────────────────
         if not query_text:
             fetch_k = top_k * 2
-            
-            vector_hits = self._pg.search_vector(query_vector=query_vector, project=project, limit=fetch_k)
+
+            vector_hits = self._pg.search_vector(
+                query_vector=query_vector, project=project, limit=fetch_k
+            )
 
             seen_hashes: set[str] = set()
             candidates: list[dict] = []
@@ -140,7 +152,9 @@ class Store:
         # ── Hybrid search path (BM25 + pgvector via RRF) ────────────────────────────
         fetch_k = max(top_k * 2, RERANK_FETCH_K)
 
-        vector_hits = self._pg.search_vector(query_vector=query_vector, project=project, limit=fetch_k)
+        vector_hits = self._pg.search_vector(
+            query_vector=query_vector, project=project, limit=fetch_k
+        )
 
         # Build: chunk_id → payload dict with cosine score (above threshold)
         vector_by_id: dict[str, dict] = {}
@@ -182,8 +196,7 @@ class Store:
         return candidates
 
     def list_projects(self) -> list[str]:
-        """Return indexed project names.
-        """
+        """Return indexed project names."""
         try:
             names = self._pg.get_project_names()
             if names:
@@ -196,14 +209,17 @@ class Store:
         # get from pg directly
         with self._pg._get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT id, project, path, language, chunk_type, symbol, content, start_line, end_line
                     FROM chunks
                     WHERE project = %s AND path = %s
-                """, (project, rel_path))
-                
+                """,
+                    (project, rel_path),
+                )
+
                 rows = cur.fetchall()
-                
+
         return [
             {
                 "id": str(row[0]),

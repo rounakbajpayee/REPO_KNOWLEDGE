@@ -120,7 +120,10 @@ def test_list_project_files_git(tmp_path):
     # Initialize actual git repo
     subprocess.run(["git", "init"], cwd=project_dir, capture_output=True, check=True)
     subprocess.run(
-        ["git", "config", "user.name", "Test"], cwd=project_dir, capture_output=True, check=True
+        ["git", "config", "user.name", "Test"],
+        cwd=project_dir,
+        capture_output=True,
+        check=True,
     )
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
@@ -135,11 +138,15 @@ def test_list_project_files_git(tmp_path):
     f2.write_text("temp")
 
     # Add main.py to git, but keep ignored.tmp untracked
-    subprocess.run(["git", "add", "main.py"], cwd=project_dir, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "add", "main.py"], cwd=project_dir, capture_output=True, check=True
+    )
 
     # Create a gitignore to ignore *.tmp files
     (project_dir / ".gitignore").write_text("*.tmp\n")
-    subprocess.run(["git", "add", ".gitignore"], cwd=project_dir, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "add", ".gitignore"], cwd=project_dir, capture_output=True, check=True
+    )
 
     files = list_project_files(project_dir)
     paths = {f.name for f in files}

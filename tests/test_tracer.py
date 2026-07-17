@@ -42,6 +42,7 @@ def _drain(tracer_mod, timeout: float = 5.0) -> None:
     """Block until the background writer queue is empty (or timeout)."""
     import queue
     import threading
+
     event = threading.Event()
     original_get = tracer_mod._queue.get
 
@@ -71,13 +72,21 @@ def test_trace_writes_jsonl_line(tmp_path: Path) -> None:
     tracer_mod = _reload_tracer(tmp_path)
 
     tracer_mod.trace(
-        "search", subsystem="knowledge", trace_id="aabbccdd", duration_ms=42, query="auth flow"
+        "search",
+        subsystem="knowledge",
+        trace_id="aabbccdd",
+        duration_ms=42,
+        query="auth flow",
     )
     _drain(tracer_mod)
 
     log_file = tmp_path / "repo_knowledge.jsonl"
     assert log_file.exists(), "Log file was not created"
-    lines = [line for line in log_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    lines = [
+        line
+        for line in log_file.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
     assert len(lines) >= 1
     record = json.loads(lines[-1])
 
@@ -94,7 +103,9 @@ def test_trace_id_in_output(tmp_path: Path) -> None:
     """trace(..., trace_id='abc123') → parsed line has trace_id: 'abc123'."""
     tracer_mod = _reload_tracer(tmp_path)
 
-    tracer_mod.trace("tool_start", subsystem="mcp", trace_id="abc123", tool="search_codebase")
+    tracer_mod.trace(
+        "tool_start", subsystem="mcp", trace_id="abc123", tool="search_codebase"
+    )
     _drain(tracer_mod)
 
     lines = (tmp_path / "repo_knowledge.jsonl").read_text(encoding="utf-8").splitlines()

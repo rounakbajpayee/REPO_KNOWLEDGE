@@ -114,7 +114,10 @@ def test_search_calls_embedder(svc, mock_embedder):
 def test_search_calls_store_with_vector(svc, mock_store, mock_embedder):
     svc.search("authentication flow", top_k=3)
     mock_store.search.assert_called_once_with(
-        mock_embedder.embed.return_value, top_k=3, project=None, query_text="authentication flow"
+        mock_embedder.embed.return_value,
+        top_k=3,
+        project=None,
+        query_text="authentication flow",
     )
 
 
@@ -197,7 +200,9 @@ def test_reindex_embedder_failure_returns_error(svc, mock_embedder, mock_store):
     assert "RapidMLX" in result["error"]
 
 
-def test_reindex_incremental_no_changes_returns_zero(svc, mock_store, fake_projects_root):
+def test_reindex_incremental_no_changes_returns_zero(
+    svc, mock_store, fake_projects_root
+):
     """If all indexed hashes and mtimes match current files, chunks_indexed must be 0."""
     # Pre-populate hashes and mtimes matching the actual file content in fake_projects_root
     alpha_path = fake_projects_root / "ALPHA"
@@ -276,7 +281,9 @@ def test_get_project_context_file_count_excludes_ignore_dirs(svc, fake_projects_
     (cache_dir / "main.cpython-311.pyc").write_bytes(b"bytecode")
     ctx = svc.get_project_context("ALPHA")
     # file_count must not include the .pyc inside __pycache__
-    normal_count = sum(1 for p in alpha.rglob("*") if p.is_file() and "__pycache__" not in p.parts)
+    normal_count = sum(
+        1 for p in alpha.rglob("*") if p.is_file() and "__pycache__" not in p.parts
+    )
     assert ctx["file_count"] == normal_count
 
 
@@ -399,7 +406,13 @@ def test_get_chunks_for_file_returns_symbol_map(svc, mock_store, tmp_path):
     proj_dir = tmp_path / "LENS"
     proj_dir.mkdir()
     mock_store.get_chunks_for_path.return_value = [
-        {"symbol": "foo", "chunk_type": "func", "start_line": 10, "end_line": 20, "content": "x"}
+        {
+            "symbol": "foo",
+            "chunk_type": "func",
+            "start_line": 10,
+            "end_line": 20,
+            "content": "x",
+        }
     ]
 
     res = svc.get_chunks_for_file("LENS", "src/a.py")
@@ -411,7 +424,13 @@ def test_get_chunks_for_file_no_content_in_chunks(svc, mock_store, tmp_path):
     proj_dir = tmp_path / "LENS"
     proj_dir.mkdir()
     mock_store.get_chunks_for_path.return_value = [
-        {"symbol": "foo", "chunk_type": "func", "start_line": 10, "end_line": 20, "content": "x"}
+        {
+            "symbol": "foo",
+            "chunk_type": "func",
+            "start_line": 10,
+            "end_line": 20,
+            "content": "x",
+        }
     ]
 
     res = svc.get_chunks_for_file("LENS", "src/a.py")
@@ -445,9 +464,7 @@ def test_benchmark_embeddings_empty(svc):
 
 
 def test_benchmark_embeddings_hits(svc, mock_store, mock_embedder):
-    mock_store.search.return_value = [
-        {"path": "src/main.py", "score": 0.9}
-    ]
+    mock_store.search.return_value = [{"path": "src/main.py", "score": 0.9}]
     qa_pairs = [{"query": "run", "expected_path": "src/main.py"}]
     res = svc.benchmark_embeddings(qa_pairs)
     assert res["recall_at_5"] == 100.0
@@ -458,9 +475,7 @@ def test_benchmark_embeddings_hits(svc, mock_store, mock_embedder):
 
 
 def test_benchmark_embeddings_misses(svc, mock_store, mock_embedder):
-    mock_store.search.return_value = [
-        {"path": "src/other.py", "score": 0.9}
-    ]
+    mock_store.search.return_value = [{"path": "src/other.py", "score": 0.9}]
     qa_pairs = [{"query": "run", "expected_path": "src/main.py"}]
     res = svc.benchmark_embeddings(qa_pairs)
     assert res["recall_at_5"] == 0.0

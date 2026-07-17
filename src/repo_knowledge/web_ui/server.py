@@ -30,8 +30,12 @@ sse = SseServerTransport("/messages/")
 
 @app.get("/sse")
 async def handle_sse(request: Request):
-    async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
-        await mcp_server.run(streams[0], streams[1], mcp_server.create_initialization_options())
+    async with sse.connect_sse(
+        request.scope, request.receive, request._send
+    ) as streams:
+        await mcp_server.run(
+            streams[0], streams[1], mcp_server.create_initialization_options()
+        )
 
 
 app.mount("/messages/", sse.handle_post_message)
@@ -88,8 +92,6 @@ def get_status():
         postgres_ok = svc._pg.health_check()
     except Exception:
         pass
-
-
 
     ollama_ok = False
     try:
@@ -184,7 +186,9 @@ def get_projects():
                 for lang, count in langs.items()
             }
             # sort by percentage descending
-            lang_pcts = dict(sorted(lang_pcts.items(), key=lambda item: item[1], reverse=True))
+            lang_pcts = dict(
+                sorted(lang_pcts.items(), key=lambda item: item[1], reverse=True)
+            )
 
         results.append(
             {
@@ -215,7 +219,10 @@ def search_sandbox(req: SearchRequest):
 # Ordered list of (label, candidate relative paths) to probe per project
 _DOC_CANDIDATES: list[tuple[str, list[str]]] = [
     ("README", ["README.md", "README.rst", "README.txt", "readme.md"]),
-    ("Architecture", ["ARCHITECTURE.md", "docs/architecture.md", "docs/ARCHITECTURE.md"]),
+    (
+        "Architecture",
+        ["ARCHITECTURE.md", "docs/architecture.md", "docs/ARCHITECTURE.md"],
+    ),
     ("Runbook", ["RUNBOOK.md", "docs/runbook.md", "docs/RUNBOOK.md"]),
 ]
 
@@ -227,7 +234,9 @@ def get_project_docs(project_name: str):
 
     project = get_project(project_name)
     if not project:
-        raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_name}' not found"
+        )
 
     docs = []
     for label, candidates in _DOC_CANDIDATES:
@@ -355,4 +364,6 @@ def stream_logs(request: Request):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("repo_knowledge.web_ui.server:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run(
+        "repo_knowledge.web_ui.server:app", host="127.0.0.1", port=8000, reload=True
+    )

@@ -9,16 +9,25 @@ import click
 
 
 def main():
-    click.secho("=== REPO_KNOWLEDGE Windows Startup Configurator ===", fg="cyan", bold=True)
+    click.secho(
+        "=== REPO_KNOWLEDGE Windows Startup Configurator ===", fg="cyan", bold=True
+    )
 
     appdata = os.getenv("APPDATA")
     if not appdata:
-        click.secho("Error: APPDATA environment variable not found. Are you on Windows?", fg="red")
+        click.secho(
+            "Error: APPDATA environment variable not found. Are you on Windows?",
+            fg="red",
+        )
         return
 
-    startup_dir = Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    startup_dir = (
+        Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    )
     if not startup_dir.exists():
-        click.secho(f"Error: Windows Startup folder not found at: {startup_dir}", fg="red")
+        click.secho(
+            f"Error: Windows Startup folder not found at: {startup_dir}", fg="red"
+        )
         return
 
     repo_root = Path(__file__).resolve().parent
@@ -30,7 +39,9 @@ def main():
         return
 
     if not pythonw_path.exists():
-        click.secho(f"Error: pythonw.exe not found under .venv at: {pythonw_path}", fg="red")
+        click.secho(
+            f"Error: pythonw.exe not found under .venv at: {pythonw_path}", fg="red"
+        )
         return
 
     bat_path = startup_dir / "start_repo_knowledge_watcher.bat"
@@ -43,7 +54,8 @@ start /B "" "{pythonw_path}" "{watcher_path}"
     try:
         bat_path.write_text(bat_content, encoding="utf-8")
         click.secho(
-            "\n[OK] Successfully registered silent background filewatcher at startup!", fg="green"
+            "\n[OK] Successfully registered silent background filewatcher at startup!",
+            fg="green",
         )
         click.echo(f"Startup Script Location: {bat_path}")
         click.echo(

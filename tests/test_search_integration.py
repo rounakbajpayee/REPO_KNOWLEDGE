@@ -46,7 +46,9 @@ def test_search_integration(mock_default_embedder, mock_store_class):
                 print("Searching...")
                 t1 = time.time()
                 res = svc.search(
-                    "knowledge service embedding vector store", project="REPO_KNOWLEDGE", top_k=3
+                    "knowledge service embedding vector store",
+                    project="REPO_KNOWLEDGE",
+                    top_k=3,
                 )
                 print(f"Search took {time.time() - t1:.2f}s")
                 print(f"Found {len(res)} results.")

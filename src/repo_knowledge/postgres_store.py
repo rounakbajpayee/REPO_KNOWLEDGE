@@ -249,14 +249,22 @@ class PostgresStore:
                 cur.execute("DELETE FROM projects WHERE name = %s", (project_name,))
 
     def upsert_chunks(
-        self, file_id: int, project: str, path: str, chunks: list, chunk_uuids: list[str], vectors: list[list[float]] | None = None
+        self,
+        file_id: int,
+        project: str,
+        path: str,
+        chunks: list,
+        chunk_uuids: list[str],
+        vectors: list[list[float]] | None = None,
     ) -> None:
         """Save raw chunk text records and vectors transactionally in the database."""
         with self._get_connection() as conn:
             # Register vector type if psycopg2 has it, otherwise rely on string casting
             with conn.cursor() as cur:
                 for idx, (chunk, cuuid) in enumerate(zip(chunks, chunk_uuids)):
-                    vector_str = f"[{','.join(map(str, vectors[idx]))}]" if vectors else None
+                    vector_str = (
+                        f"[{','.join(map(str, vectors[idx]))}]" if vectors else None
+                    )
                     cur.execute(
                         """
                         INSERT INTO chunks
@@ -431,7 +439,9 @@ class PostgresStore:
         """Return all projects from database."""
         with self._get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT name, stack, last_indexed_at FROM projects ORDER BY name ASC;")
+                cur.execute(
+                    "SELECT name, stack, last_indexed_at FROM projects ORDER BY name ASC;"
+                )
                 return [
                     {"name": r[0], "stack": r[1], "last_indexed_at": r[2].isoformat()}
                     for r in cur.fetchall()
@@ -543,13 +553,13 @@ class PostgresStore:
                 if project:
                     base_sql += " AND project = %s"
                     params.append(project)
-                
+
                 base_sql += " ORDER BY embedding <=> %s::vector LIMIT %s;"
                 params.extend([vector_str, limit])
-                
+
                 cur.execute(base_sql, params)
                 rows = cur.fetchall()
-        
+
         return [
             {
                 "id": r[0],
@@ -605,11 +615,11 @@ class PostgresStore:
                     rows,
                 )
 
-    def get_audit_logs(self, limit: int = 100, severity: str | None = None) -> list[dict]:
+    def get_audit_logs(
+        self, limit: int = 100, severity: str | None = None
+    ) -> list[dict]:
         """Query the structured trace logs."""
-        query = (
-            "SELECT ts, trace_id, event, severity, subsystem, duration_ms, payload FROM audit_logs "
-        )
+        query = "SELECT ts, trace_id, event, severity, subsystem, duration_ms, payload FROM audit_logs "
         params: list[str | int] = []
         if severity:
             query += "WHERE severity = %s "

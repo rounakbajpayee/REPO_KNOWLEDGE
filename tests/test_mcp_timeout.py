@@ -66,7 +66,9 @@ def test_dispatch_get_project_context_missing_project(mock_svc: MagicMock) -> No
 def test_dispatch_routes_search(mock_svc: MagicMock) -> None:
     """_dispatch('search_codebase') calls svc.search() with correct args."""
     result = _dispatch(
-        mock_svc, "search_codebase", {"query": "auth flow", "project": "ALPHA", "top_k": 3}
+        mock_svc,
+        "search_codebase",
+        {"query": "auth flow", "project": "ALPHA", "top_k": 3},
     )
     mock_svc.search.assert_called_once_with(query="auth flow", project="ALPHA", top_k=3)
     assert result == [{"symbol": "run"}]
@@ -81,7 +83,9 @@ def test_dispatch_search_missing_query(mock_svc: MagicMock) -> None:
 
 def test_dispatch_routes_get_file(mock_svc: MagicMock) -> None:
     """_dispatch('get_file') calls svc.get_file(project, path)."""
-    result = _dispatch(mock_svc, "get_file", {"project": "ALPHA", "path": "src/main.py"})
+    result = _dispatch(
+        mock_svc, "get_file", {"project": "ALPHA", "path": "src/main.py"}
+    )
     mock_svc.get_file.assert_called_once_with(
         "ALPHA", "src/main.py", start_line=None, end_line=None
     )
@@ -95,7 +99,9 @@ def test_dispatch_routes_get_file_with_lines(mock_svc: MagicMock) -> None:
         "get_file",
         {"project": "ALPHA", "path": "src/main.py", "start_line": 10, "end_line": 20},
     )
-    mock_svc.get_file.assert_called_once_with("ALPHA", "src/main.py", start_line=10, end_line=20)
+    mock_svc.get_file.assert_called_once_with(
+        "ALPHA", "src/main.py", start_line=10, end_line=20
+    )
     assert result == {"content": "def run(): pass"}
 
 

@@ -52,7 +52,11 @@ SEARCH_SCORE_THRESHOLD: float = float(os.getenv("SEARCH_SCORE_THRESHOLD", "0.40"
 
 # ── Reranking ────────────────────────────────────────────────────────────────
 # Set RERANK_ENABLED=false to skip the cross-encoder (useful in low-memory envs).
-RERANK_ENABLED: bool = os.getenv("RERANK_ENABLED", "true").lower() not in {"false", "0", "no"}
+RERANK_ENABLED: bool = os.getenv("RERANK_ENABLED", "true").lower() not in {
+    "false",
+    "0",
+    "no",
+}
 
 # How many candidates to fetch from Qdrant+BM25 before passing to the reranker.
 # Higher = better recall but slower cross-encoder. 40 is the production sweet-spot.

@@ -140,7 +140,9 @@ def _get_symbol_from_node(node) -> str:
     return ""
 
 
-def _chunk_js_ts(source: str, rel_path: str, project: str, language: str) -> list[Chunk]:
+def _chunk_js_ts(
+    source: str, rel_path: str, project: str, language: str
+) -> list[Chunk]:
     parser = _get_ts_parser(language)
     if not parser:
         return _chunk_fixed(source, rel_path, project, language=language)
@@ -265,7 +267,9 @@ _CHUNK_LINES = 60
 _OVERLAP_LINES = 10
 
 
-def _chunk_fixed(source: str, rel_path: str, project: str, language: str) -> list[Chunk]:
+def _chunk_fixed(
+    source: str, rel_path: str, project: str, language: str
+) -> list[Chunk]:
     lines = source.splitlines()
     chunks: list[Chunk] = []
     step = _CHUNK_LINES - _OVERLAP_LINES
@@ -342,7 +346,9 @@ def _chunk_docker_compose(source: str, rel_path: str, project: str) -> list[Chun
     return chunks
 
 
-def _chunk_plist(source: str, file_path: Path, rel_path: str, project: str) -> list[Chunk]:
+def _chunk_plist(
+    source: str, file_path: Path, rel_path: str, project: str
+) -> list[Chunk]:
     import json
     import plistlib
 

@@ -67,7 +67,10 @@ def _get_client() -> Any | None:
             import redis  # type: ignore[import]
 
             r = redis.from_url(
-                REDIS_URL, socket_connect_timeout=2, socket_timeout=2, decode_responses=True
+                REDIS_URL,
+                socket_connect_timeout=2,
+                socket_timeout=2,
+                decode_responses=True,
             )
             r.ping()  # Verify reachability
             _client = r

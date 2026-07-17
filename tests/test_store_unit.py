@@ -4,7 +4,7 @@ test_store_unit.py — Unit tests for Store, all mocked (no real Postgres).
 Every test patches PostgresStore so these run in CI without infrastructure.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -48,12 +48,12 @@ def test_upsert_chunks_calls_upsert():
     store = _make_store(mock_pg)
     chunks = [_make_chunk()]
     vectors = [[0.1] * 10]
-    
+
     mock_pg.upsert_project.return_value = 1
     mock_pg.register_file.return_value = 1
-    
+
     store.upsert_chunks(chunks, vectors)
-    
+
     assert mock_pg.upsert_project.called
     assert mock_pg.register_file.called
     assert mock_pg.upsert_chunks.called

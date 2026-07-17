@@ -15,6 +15,7 @@ from repo_knowledge.config import (
 
 # Reuse existing test db config. We use a dedicated fixture since tables are replaced.
 
+
 @pytest.fixture
 def tmp_pg():
     """Provides a clean test database by ensuring all tables are dropped beforehand."""
@@ -74,7 +75,6 @@ def tmp_pg():
             cur.execute("DROP TABLE IF EXISTS alembic_version CASCADE;")
 
     conn.close()
-
 
 
 def test_upgrade_creates_all_tables(tmp_pg):

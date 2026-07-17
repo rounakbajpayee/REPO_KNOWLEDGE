@@ -18,7 +18,12 @@ from typing import Protocol
 
 import httpx
 
-from repo_knowledge.config import EMBEDDING_DIM, EMBEDDING_MODEL, OLLAMA_TIMEOUT, OLLAMA_URL
+from repo_knowledge.config import (
+    EMBEDDING_DIM,
+    EMBEDDING_MODEL,
+    OLLAMA_TIMEOUT,
+    OLLAMA_URL,
+)
 from repo_knowledge.tracer import get_trace_id
 
 
@@ -98,7 +103,7 @@ class OllamaEmbedder:
 
         data = response.json()
         data_list = data.get("data")
-        
+
         if not data_list:
             raise RuntimeError(f"RapidMLX returned no embeddings. Response: {data}")
 

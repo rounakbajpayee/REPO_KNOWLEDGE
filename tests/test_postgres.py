@@ -101,7 +101,11 @@ def test_postgres_store_initialization(mock_connect):
 
     # We instantiate PostgresStore. Its methods like _ensure_tables will be called lazily.
     store = PostgresStore(
-        host="localhost", port=5434, user="test_user", password="test_password", database="test_db"
+        host="localhost",
+        port=5434,
+        user="test_user",
+        password="test_password",
+        database="test_db",
     )
 
     # Lazy initial state
@@ -184,7 +188,11 @@ def test_upsert_chunks(mock_command, mock_connect):
 
     store = PostgresStore()
     store.upsert_chunks(
-        file_id=101, project="my_proj", path="src/main.py", chunks=[chunk], chunk_uuids=["uuid-xyz"]
+        file_id=101,
+        project="my_proj",
+        path="src/main.py",
+        chunks=[chunk],
+        chunk_uuids=["uuid-xyz"],
     )
 
     exec_args = mock_cursor.execute.call_args[0]
@@ -249,7 +257,14 @@ def test_get_decision_history(mock_command, mock_connect):
     mock_conn_fn, mock_conn, mock_cursor = mock_connect
     now = datetime.now(timezone.utc)
     mock_cursor.fetchall.return_value = [
-        ("embedding_model", "switch_to_qwen", "Switch", "Rationale", [{"name": "mxbai"}], now)
+        (
+            "embedding_model",
+            "switch_to_qwen",
+            "Switch",
+            "Rationale",
+            [{"name": "mxbai"}],
+            now,
+        )
     ]
 
     store = PostgresStore()
@@ -275,7 +290,8 @@ def test_health_check_returns_true_when_ok(mock_connect):
 def test_health_check_returns_false_on_failure():
     # Setup connection to fail completely
     with patch(
-        "repo_knowledge.postgres_store.psycopg2.connect", side_effect=Exception("Connection failed")
+        "repo_knowledge.postgres_store.psycopg2.connect",
+        side_effect=Exception("Connection failed"),
     ):
         store = PostgresStore()
         assert store.health_check() is False

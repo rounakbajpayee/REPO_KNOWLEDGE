@@ -23,13 +23,17 @@ def temp_vault_service(tmp_path: Path) -> KnowledgeService:
     # Mock PostgresStore to raise exceptions so that we test Markdown logic and fallback
     mock_pg = MagicMock()
     mock_pg.log_decision.side_effect = Exception("Database offline in unit tests")
-    mock_pg.get_decision_history.side_effect = Exception("Database offline in unit tests")
+    mock_pg.get_decision_history.side_effect = Exception(
+        "Database offline in unit tests"
+    )
     svc._pg = mock_pg
 
     return svc
 
 
-def test_log_decision_creates_file_with_frontmatter(temp_vault_service: KnowledgeService) -> None:
+def test_log_decision_creates_file_with_frontmatter(
+    temp_vault_service: KnowledgeService,
+) -> None:
     """Calling log_decision for a new topic creates the markdown file and writes frontmatter."""
     svc = temp_vault_service
     res = svc.log_decision(
@@ -55,7 +59,9 @@ def test_log_decision_creates_file_with_frontmatter(temp_vault_service: Knowledg
     assert "This is a test description." in content
 
 
-def test_log_decision_appends_and_updates_frontmatter(temp_vault_service: KnowledgeService) -> None:
+def test_log_decision_appends_and_updates_frontmatter(
+    temp_vault_service: KnowledgeService,
+) -> None:
     """Calling log_decision repeatedly appends entries and increments entry count."""
     svc = temp_vault_service
 
@@ -85,7 +91,9 @@ def test_log_decision_appends_and_updates_frontmatter(temp_vault_service: Knowle
     assert "migrate_to_postgres" in content
 
 
-def test_get_decision_history_defaults_limit(temp_vault_service: KnowledgeService) -> None:
+def test_get_decision_history_defaults_limit(
+    temp_vault_service: KnowledgeService,
+) -> None:
     """get_decision_history defaults to last 3 entries unless full_history is true."""
     svc = temp_vault_service
 
@@ -134,7 +142,9 @@ def test_log_decision_slugifies_topic(temp_vault_service: KnowledgeService) -> N
     assert vault_file.exists()
 
 
-def test_log_decision_concurrency_thread_safety(temp_vault_service: KnowledgeService) -> None:
+def test_log_decision_concurrency_thread_safety(
+    temp_vault_service: KnowledgeService,
+) -> None:
     """Multiple concurrent threads appending to the same topic do not corrupt files."""
     svc = temp_vault_service
     topic = "concurrent_topic"

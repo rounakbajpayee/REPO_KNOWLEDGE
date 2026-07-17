@@ -90,7 +90,9 @@ def _dispatch(
             top_k = int(arguments.get("top_k", 5))
             if top_k < 1 or top_k > 1000:
                 return {"error": f"top_k must be 1-1000, got {top_k}"}
-            return svc.search(query=query, project=arguments.get("project"), top_k=top_k)
+            return svc.search(
+                query=query, project=arguments.get("project"), top_k=top_k
+            )
 
         elif name == "list_files":
             project = arguments.get("project", "")
@@ -109,7 +111,9 @@ def _dispatch(
             top_k = int(arguments.get("top_k", 10))
             if top_k < 1 or top_k > 1000:
                 return {"error": f"top_k must be 1-1000, got {top_k}"}
-            return svc.search_symbols(query=query, project=arguments.get("project"), top_k=top_k)
+            return svc.search_symbols(
+                query=query, project=arguments.get("project"), top_k=top_k
+            )
 
         elif name == "get_chunks_for_file":
             project = arguments.get("project", "")
@@ -463,14 +467,14 @@ async def list_tools() -> list[types.Tool]:
                             "type": "object",
                             "properties": {
                                 "query": {"type": "string"},
-                                "expected_path": {"type": "string"}
+                                "expected_path": {"type": "string"},
                             },
-                            "required": ["query", "expected_path"]
-                        }
+                            "required": ["query", "expected_path"],
+                        },
                     }
                 },
-                "required": ["qa_pairs"]
-            }
+                "required": ["qa_pairs"],
+            },
         ),
     ]
 
@@ -492,7 +496,13 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             timeout=TOOL_TIMEOUT_S,
         )
         duration_ms = round((time.monotonic() - t0) * 1000)
-        trace("tool_complete", subsystem="mcp", trace_id=tid, tool=name, duration_ms=duration_ms)
+        trace(
+            "tool_complete",
+            subsystem="mcp",
+            trace_id=tid,
+            tool=name,
+            duration_ms=duration_ms,
+        )
 
     except asyncio.TimeoutError:
         timeout_s = int(TOOL_TIMEOUT_S)
@@ -557,13 +567,17 @@ async def main() -> None:
     store = Store()
 
     if not store.health_check():
-        log.warning("Qdrant unreachable at %s — search tools will fail until resolved", QDRANT_URL)
+        log.warning(
+            "Qdrant unreachable at %s — search tools will fail until resolved",
+            QDRANT_URL,
+        )
     else:
         log.info("Qdrant OK")
 
     if not embedder.health_check():
         log.warning(
-            "Ollama unreachable at %s — search and reindex will fail until resolved", OLLAMA_URL
+            "Ollama unreachable at %s — search and reindex will fail until resolved",
+            OLLAMA_URL,
         )
     else:
         log.info("Ollama OK")

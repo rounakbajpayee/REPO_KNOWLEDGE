@@ -67,7 +67,9 @@ class KnowledgeService:
         indexed = set(self._store.list_projects())
         result = []
         for name, project in scanned.items():
-            result.append({"name": name, "stack": project.stack, "indexed": name in indexed})
+            result.append(
+                {"name": name, "stack": project.stack, "indexed": name in indexed}
+            )
         result = sorted(result, key=lambda x: str(x["name"]))
         with self._projects_cache_lock:
             self._projects_cache = result
@@ -89,7 +91,9 @@ class KnowledgeService:
                 severity="ERROR",
                 subsystem="knowledge",
             )
-            return {"error": f"Project '{project_name}' not found in {self._projects_root}"}
+            return {
+                "error": f"Project '{project_name}' not found in {self._projects_root}"
+            }
         readme_excerpt = _read_readme(project.path)
         tree = _build_tree(project.path, max_depth=2)
         # Exclude ignored dirs from file count (matches what gets indexed)
@@ -142,7 +146,9 @@ class KnowledgeService:
         vector = self._embedder.embed(query)
 
         # ── 3. Hybrid recall: Qdrant + BM25 via RRF ────────────────────────────────
-        candidates = self._store.search(vector, top_k=top_k, project=project, query_text=query)
+        candidates = self._store.search(
+            vector, top_k=top_k, project=project, query_text=query
+        )
 
         # ── 4. Cross-encoder rerank ───────────────────────────────────────────────
         if RERANK_ENABLED and candidates:
@@ -154,7 +160,9 @@ class KnowledgeService:
 
         # Classify quality by best score in result set
         if results:
-            best_score = max(r.get("rerank_score", r.get("score", 0.0)) for r in results)
+            best_score = max(
+                r.get("rerank_score", r.get("score", 0.0)) for r in results
+            )
             search_quality = "good" if best_score >= 0.65 else "low"
         else:
             search_quality = "none"
@@ -181,7 +189,10 @@ class KnowledgeService:
         return results
 
     def list_files(
-        self, project_name: str, path_prefix: str | None = None, extension: str | None = None
+        self,
+        project_name: str,
+        path_prefix: str | None = None,
+        extension: str | None = None,
     ) -> dict:
         project_root = Path(self._projects_root) / project_name
         if not project_root.exists() or not project_root.is_dir():
@@ -201,7 +212,9 @@ class KnowledgeService:
                     """,
                         (project_name,),
                     )
-                    db_line_counts = {row[0].replace("\\", "/"): row[1] for row in cur.fetchall()}
+                    db_line_counts = {
+                        row[0].replace("\\", "/"): row[1] for row in cur.fetchall()
+                    }
         except Exception:
             pass
 
@@ -222,7 +235,8 @@ class KnowledgeService:
             elif suffix in IGNORE_EXTENSIONS or (
                 suffix not in SUPPORTED_EXTENSIONS
                 and suffix not in (".plist", ".conf", ".ini")
-                and file_path.name.lower() not in ("docker-compose.yml", "docker-compose.yaml")
+                and file_path.name.lower()
+                not in ("docker-compose.yml", "docker-compose.yaml")
             ):
                 continue
 
@@ -231,7 +245,9 @@ class KnowledgeService:
                 try:
                     size = file_path.stat().st_size
                     if size < 50000:
-                        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        with open(
+                            file_path, "r", encoding="utf-8", errors="ignore"
+                        ) as f:
                             line_count = sum(1 for _ in f)
                     else:
                         line_count = 0
@@ -252,7 +268,9 @@ class KnowledgeService:
             elif suffix == ".json":
                 language = "json"
 
-            files_data.append({"path": rel_path, "language": language, "line_count": line_count})
+            files_data.append(
+                {"path": rel_path, "language": language, "line_count": line_count}
+            )
 
         return {
             "project": project_name,
@@ -261,7 +279,9 @@ class KnowledgeService:
             "filters": {"path_prefix": path_prefix, "extension": extension},
         }
 
-    def search_symbols(self, query: str, project: str | None = None, top_k: int = 10) -> list[dict]:
+    def search_symbols(
+        self, query: str, project: str | None = None, top_k: int = 10
+    ) -> list[dict]:
         results = self.search(query, project, top_k)
         for hit in results:
             hit.pop("content", None)
@@ -297,19 +317,21 @@ class KnowledgeService:
             if found:
                 hits += 1
 
-            breakdown.append({
-                "query": query,
-                "expected_path": expected_path,
-                "hit": found,
-                "rank": found_at_rank
-            })
+            breakdown.append(
+                {
+                    "query": query,
+                    "expected_path": expected_path,
+                    "hit": found,
+                    "rank": found_at_rank,
+                }
+            )
 
         recall = (hits / len(qa_pairs)) * 100.0
         return {
             "recall_at_5": round(recall, 2),
             "total_queries": len(qa_pairs),
             "hits": hits,
-            "breakdown": breakdown
+            "breakdown": breakdown,
         }
 
     def get_chunks_for_file(self, project_name: str, path: str) -> dict:
@@ -392,7 +414,9 @@ class KnowledgeService:
         if start_line and end_line and start_line > end_line:
             return {"error": "start_line must be <= end_line"}
         if start_line and start_line > total_lines:
-            return {"error": f"start_line {start_line} exceeds file length {total_lines}"}
+            return {
+                "error": f"start_line {start_line} exceeds file length {total_lines}"
+            }
 
         sliced_content = content
         if start_line is not None or end_line is not None:
@@ -439,14 +463,24 @@ class KnowledgeService:
 
         if force:
             # Full reindex: wipe everything, rechunk all files
-            trace("reindex_start", project=project_name, mode="force", subsystem="knowledge")
+            trace(
+                "reindex_start",
+                project=project_name,
+                mode="force",
+                subsystem="knowledge",
+            )
             self._store.delete_project(project_name)
             trace("reindex_cleared", project=project_name, subsystem="knowledge")
             chunks = chunk_project(project.path, project_name)
             changed_chunks = chunks
         else:
             # Incremental reindex: skip unchanged files, re-embed changed/new, delete removed
-            trace("reindex_start", project=project_name, mode="incremental", subsystem="knowledge")
+            trace(
+                "reindex_start",
+                project=project_name,
+                mode="incremental",
+                subsystem="knowledge",
+            )
             indexed_hashes = self._store.get_indexed_file_hashes(project_name)
 
             # Fetch indexed modification times from database
@@ -489,7 +523,9 @@ class KnowledgeService:
                 content_hash = hashlib.sha256(source.encode()).hexdigest()
                 current_files[rel_path] = content_hash
 
-                if old_hash != content_hash:  # new or changed (old_hash "" also triggers)
+                if (
+                    old_hash != content_hash
+                ):  # new or changed (old_hash "" also triggers)
                     new_chunks = chunk_file(
                         file_path,
                         project.path,
@@ -528,7 +564,11 @@ class KnowledgeService:
                 subsystem="knowledge",
             )
             self._invalidate_projects_cache()
-            return {"project": project_name, "chunks_indexed": 0, "message": "No changes detected"}
+            return {
+                "project": project_name,
+                "chunks_indexed": 0,
+                "message": "No changes detected",
+            }
 
         trace(
             "reindex_chunked",
@@ -651,8 +691,14 @@ class KnowledgeService:
                     opt_name = opt.get("name", "Unknown Option")
                     opt_status = opt.get("status", "REJECTED")
                     opt_rat = opt.get("rationale", "")
-                    marker = "[REJECTED]" if opt_status.upper() == "REJECTED" else "[SELECTED]"
-                    options_str += f"  - {marker} *{opt_name} ({opt_status}):* {opt_rat}\n"
+                    marker = (
+                        "[REJECTED]"
+                        if opt_status.upper() == "REJECTED"
+                        else "[SELECTED]"
+                    )
+                    options_str += (
+                        f"  - {marker} *{opt_name} ({opt_status}):* {opt_rat}\n"
+                    )
 
             new_entry = f"## [{now_str}] {name}\n- **Description:** {description}\n{options_str}- **Rationale:** {rationale}\n"  # noqa: E501
 
@@ -702,10 +748,14 @@ entries_count: 1
                 frontmatter["last_modified"] = now_str
 
                 fm_str = (
-                    "---\n" + "\n".join(f"{k}: {v}" for k, v in frontmatter.items()) + "\n---\n"
+                    "---\n"
+                    + "\n".join(f"{k}: {v}" for k, v in frontmatter.items())
+                    + "\n---\n"
                 )
                 main_body_str = main_body.strip()
-                updated_content = fm_str + main_body_str + "\n\n" + new_entry.strip() + "\n"
+                updated_content = (
+                    fm_str + main_body_str + "\n\n" + new_entry.strip() + "\n"
+                )
 
                 try:
                     vault_file.write_text(updated_content, encoding="utf-8")
@@ -719,7 +769,12 @@ entries_count: 1
                     )
                     return {"error": f"Failed to update decision file: {e}"}
 
-        trace("log_decision", topic=slugified_topic, entry_name=name, subsystem="knowledge")
+        trace(
+            "log_decision",
+            topic=slugified_topic,
+            entry_name=name,
+            subsystem="knowledge",
+        )
         msg = f"Successfully logged decision '{name}' under topic '{slugified_topic}'"
         if pg_err:
             msg += f" (Postgres write failed: {pg_err})"
@@ -740,7 +795,9 @@ entries_count: 1
 
         # Try loading from PostgreSQL
         try:
-            entries_db = self._pg.get_decision_history(slugified_topic, limit=0, full_history=True)
+            entries_db = self._pg.get_decision_history(
+                slugified_topic, limit=0, full_history=True
+            )
             total_count = len(entries_db)
 
             # Slice according to limit/full_history
@@ -767,8 +824,14 @@ entries_count: 1
                         opt_name = opt.get("name", "Unknown Option")
                         opt_status = opt.get("status", "REJECTED")
                         opt_rat = opt.get("rationale", "")
-                        marker = "[REJECTED]" if opt_status.upper() == "REJECTED" else "[SELECTED]"
-                        options_str += f"  - {marker} *{opt_name} ({opt_status}):* {opt_rat}\n"
+                        marker = (
+                            "[REJECTED]"
+                            if opt_status.upper() == "REJECTED"
+                            else "[SELECTED]"
+                        )
+                        options_str += (
+                            f"  - {marker} *{opt_name} ({opt_status}):* {opt_rat}\n"
+                        )
 
                 history_parts.append(
                     f"## [{logged_at}] {entry_name}\n- **Description:** {description}\n{options_str}- **Rationale:** {rationale}"  # noqa: E501
@@ -823,7 +886,9 @@ entries_count: 1
         vault_file = vault_dir / f"{slugified_topic}.md"
 
         if not vault_file.exists():
-            return {"error": f"Decision log for topic '{slugified_topic}' does not exist"}
+            return {
+                "error": f"Decision log for topic '{slugified_topic}' does not exist"
+            }
 
         with self._vault_lock:
             try:
@@ -944,7 +1009,10 @@ entries_count: 1
                 subsystem="knowledge",
                 trace_id=trace_id,
             )
-            return {"message": "No chunks found in database to re-embed", "chunks_reembedded": 0}
+            return {
+                "message": "No chunks found in database to re-embed",
+                "chunks_reembedded": 0,
+            }
 
         # 2. Reset the Qdrant collection
         try:
@@ -1005,7 +1073,9 @@ entries_count: 1
                 ]
 
                 # Upsert to Qdrant
-                self._store._client.upsert(collection_name=self._store._collection, points=points)
+                self._store._client.upsert(
+                    collection_name=self._store._collection, points=points
+                )
 
                 duration_ms = round((time.monotonic() - t_batch) * 1000)
                 trace(

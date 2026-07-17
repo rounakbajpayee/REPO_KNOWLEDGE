@@ -135,10 +135,14 @@ def _db_flush_loop() -> None:
                 pg = None  # Force re-init on next flush
 
 
-_writer_thread = threading.Thread(target=_writer_loop, daemon=True, name="tracer-writer")
+_writer_thread = threading.Thread(
+    target=_writer_loop, daemon=True, name="tracer-writer"
+)
 _writer_thread.start()
 
-_db_flush_thread = threading.Thread(target=_db_flush_loop, daemon=True, name="tracer-db-flush")
+_db_flush_thread = threading.Thread(
+    target=_db_flush_loop, daemon=True, name="tracer-db-flush"
+)
 _db_flush_thread.start()
 
 
@@ -150,7 +154,9 @@ def new_trace_id() -> str:
     return secrets.token_hex(4)  # 4 bytes → 8 hex chars
 
 
-_trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("trace_id", default=None)
+_trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "trace_id", default=None
+)
 
 
 def set_trace_id(trace_id: str | None) -> contextvars.Token[str | None]:

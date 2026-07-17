@@ -27,7 +27,9 @@ def check_startup_registration():
     if not appdata:
         return False
 
-    startup_dir = Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    startup_dir = (
+        Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    )
     bat_path = startup_dir / "start_repo_knowledge_watcher.bat"
 
     if not bat_path.exists():
@@ -91,7 +93,9 @@ def start_services():
     else:
         print("[STARTING] Launching background Filewatcher...")
         if not PYTHONW_PATH.exists():
-            print(f"[ERROR] Python virtual environment executable not found at: {PYTHONW_PATH}")
+            print(
+                f"[ERROR] Python virtual environment executable not found at: {PYTHONW_PATH}"
+            )
             return
         try:
             # Spawn process silently with no terminal window
@@ -123,7 +127,9 @@ def start_services():
             time.sleep(0.5)
             new_pid = find_process_by_cmdline("repo_knowledge.web_ui.server")
             if new_pid:
-                print(f"[OK] Web UI / MCP Server started in background (PID: {new_pid})")
+                print(
+                    f"[OK] Web UI / MCP Server started in background (PID: {new_pid})"
+                )
             else:
                 print("[ERROR] Web UI / MCP Server failed to start.")
         except Exception as e:

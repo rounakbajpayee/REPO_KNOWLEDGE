@@ -23,8 +23,6 @@ from repo_knowledge.config import RERANK_MODEL
 log = logging.getLogger(__name__)
 
 
-
-
 # ── Singleton loader ──────────────────────────────────────────────────────────
 
 _model: Any = None  # CrossEncoder instance once loaded

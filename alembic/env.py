@@ -58,7 +58,9 @@ def run_migrations_online() -> None:
     host = os.getenv("POSTGRES_HOST", POSTGRES_HOST)
     port = int(os.getenv("POSTGRES_PORT", POSTGRES_PORT))
 
-    url = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{host}:{port}/{POSTGRES_DB}"
+    url = (
+        f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{host}:{port}/{POSTGRES_DB}"
+    )
 
     from sqlalchemy import create_engine
 

@@ -362,7 +362,10 @@ def test_minified_files_ignored_git(tmp_path):
     # Init git
     subprocess.run(["git", "init"], cwd=project_dir, capture_output=True, check=True)
     subprocess.run(
-        ["git", "config", "user.name", "Test"], cwd=project_dir, capture_output=True, check=True
+        ["git", "config", "user.name", "Test"],
+        cwd=project_dir,
+        capture_output=True,
+        check=True,
     )
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
@@ -377,11 +380,15 @@ def test_minified_files_ignored_git(tmp_path):
     f2 = project_dir / "bootstrap.min.js"
     f2.write_text("console.log('bootstrap');")
 
-    subprocess.run(["git", "add", "main.py"], cwd=project_dir, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "add", "main.py"], cwd=project_dir, capture_output=True, check=True
+    )
 
     # Ignore minified files
     (project_dir / ".gitignore").write_text("*.min.js\n")
-    subprocess.run(["git", "add", ".gitignore"], cwd=project_dir, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "add", ".gitignore"], cwd=project_dir, capture_output=True, check=True
+    )
 
     # Chunk project
     chunks = chunk_project(project_dir, "PROJ")

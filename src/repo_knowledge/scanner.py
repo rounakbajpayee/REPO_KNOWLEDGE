@@ -130,7 +130,9 @@ def list_project_files(project_path: Path) -> list[Path]:
             dirs[:] = [
                 d
                 for d in dirs
-                if d not in IGNORE_DIRS and not d.startswith(".") and not d.endswith(".egg-info")
+                if d not in IGNORE_DIRS
+                and not d.startswith(".")
+                and not d.endswith(".egg-info")
             ]
             for filename in filenames:
                 files.append(Path(root) / filename)
