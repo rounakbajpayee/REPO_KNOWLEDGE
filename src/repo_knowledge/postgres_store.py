@@ -619,7 +619,10 @@ class PostgresStore:
         self, limit: int = 100, severity: str | None = None
     ) -> list[dict]:
         """Query the structured trace logs."""
-        query = "SELECT ts, trace_id, event, severity, subsystem, duration_ms, payload FROM audit_logs "
+        query = (
+            "SELECT ts, trace_id, event, severity, subsystem, duration_ms, payload "
+            "FROM audit_logs "
+        )
         params: list[str | int] = []
         if severity:
             query += "WHERE severity = %s "

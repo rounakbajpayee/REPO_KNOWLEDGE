@@ -228,7 +228,9 @@ def main(diff: bool, commits: int, transcript: bool, topic: str | None) -> None:
                             try:
                                 data = json.loads(line)
                                 if "content" in data:
-                                    parsed_log += f"[{data.get('type', 'CHAT')}]: {data['content']}\n"
+                                    parsed_log += (
+                                f"[{data.get('type', 'CHAT')}]: {data['content']}\n"
+                            )
                             except Exception:
                                 pass
                         source_text += f"=== RECENT CHAT LOG ===\n{parsed_log}\n"

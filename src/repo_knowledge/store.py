@@ -211,7 +211,8 @@ class Store:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, project, path, language, chunk_type, symbol, content, start_line, end_line
+                    SELECT id, project, path, language, chunk_type, symbol, content, 
+                        start_line, end_line
                     FROM chunks
                     WHERE project = %s AND path = %s
                 """,
