@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # Dev-only credentials — override POSTGRES_PASSWORD via .env before any network-exposed deployment
   postgres:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -18,12 +18,7 @@ services:
       timeout: 5s
       retries: 5
 
-  qdrant:
-    image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
-    volumes:
-      - qdrant_data:/qdrant/storage
+
 
   web-ui:
     build: .
@@ -36,13 +31,10 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
       - POSTGRES_DB=repo_knowledge
-      - QDRANT_URL=http://qdrant:6333
       - OLLAMA_URL=http://host.docker.internal:11434
     depends_on:
       postgres:
         condition: service_healthy
-      qdrant:
-        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -55,7 +47,6 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
       - POSTGRES_DB=repo_knowledge
-      - QDRANT_URL=http://qdrant:6333
       - OLLAMA_URL=http://host.docker.internal:11434
       # We mount the local projects directory into the container to watch it
       - PROJECTS_ROOT=/projects
@@ -64,11 +55,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      qdrant:
-        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
 volumes:
   pgdata:
-  qdrant_data:

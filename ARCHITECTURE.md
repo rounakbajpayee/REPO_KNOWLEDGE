@@ -18,8 +18,8 @@ index.py (CLI) or watcher.py (Auto-watcher)
             ├── Scanner (scanner.py)         — discovers Git repos
             ├── Chunker (chunker.py)         — files → chunks
             ├── Embedder (embedder.py)       — text → vectors via Ollama
-            ├── PostgresStore (postgres_store.py) — Source of Truth (chunks, files, logs) + BM25 FTS
-            ├── Store (store.py)             — Qdrant Vector Cache (linked by UUID) + RRF Rank Fusion
+            ├── PostgresStore (postgres_store.py) — Source of Truth (chunks, files, logs) + BM25 FTS + pgvector
+            ├── Store (store.py)             — Store Abstraction + RRF Rank Fusion
             ├── Reranker (reranker.py)       — Cross-Encoder ms-marco-MiniLM-L-6-v2 reranking stage
             └── Cache (cache.py)             — Redis-backed query result cache (fallback to memory/miss)
 
@@ -34,20 +34,20 @@ mcp_server.py or Web UI Dashboard (server.py)
 ## Component Responsibilities
 
 ### config.py
-Single source of truth for all configuration. Reads from env vars with defaults. Includes PostgreSQL, Qdrant, Ollama, Redis, and Cross-Encoder configuration parameters.
+Single source of truth for all configuration. Reads from env vars with defaults. Includes PostgreSQL (pgvector), Ollama, Redis, and Cross-Encoder configuration parameters.
 
 ### postgres_store.py
 The absolute Source of Truth for the relational database schema:
 - **Projects table:** Tracks scanned workspace names, tech stacks, and last indexing timestamps.
 - **Files table:** Stores file paths, content hashes, and mtimes.
-- **Chunks table:** Stores raw text content of chunks mapped to file IDs and primary key UUIDs (matching Qdrant point IDs).
+- **Chunks table:** Stores raw text content of chunks mapped to file IDs and primary key UUIDs. Includes the `vector(768)` `embedding` column for semantic search.
 - **Decision logs table:** Stores chronological decision logs with parameters.
 - **Audit logs table:** Stores trace records asynchronously.
-Exposes `search_bm25()` using PostgreSQL full-text search indexing (`tsvector`) over raw chunk content. Handles automatic DDL schema migrations, database setup, and connection pools.
+Exposes `search_bm25()` using PostgreSQL full-text search indexing (`tsvector`) over raw chunk content and `search_vector()` using cosine distance over `pgvector`. Handles automatic DDL schema migrations, database setup, and connection pools.
 
 ### store.py
-Manages Qdrant vector index transactions. Acts as a high-performance vector similarity cache. Point IDs correspond to UUIDs in PostgreSQL's `chunks` table.
-Implements the hybrid search fusion logic via **Reciprocal Rank Fusion (RRF)** (`_rrf_fuse()`), promoting chunks that occur in both Qdrant similarity searches and Postgres BM25 searches.
+Manages vector operations and delegates data persistence to `PostgresStore`.
+Implements the hybrid search fusion logic via **Reciprocal Rank Fusion (RRF)** (`_rrf_fuse()`), promoting chunks that occur in both pgvector similarity searches and Postgres BM25 searches.
 
 ### reranker.py
 Implements the second-stage Cross-Encoder reranking using a thread-safe singleton wrapper around `ms-marco-MiniLM-L-6-v2`. Lazy-loads model weights on the first query needing reranking, with full graceful fallback if model initialization fails.
@@ -63,9 +63,8 @@ flowchart TD
     Scanner -->|File Content| Chunker[Chunker (AST / Regex)]
     Chunker -->|Text Chunks| Postgres[(Postgres Store)]
     Postgres -->|Text| Embedder[Ollama Embedder]
-    Embedder -->|Vectors| Qdrant[(Qdrant Vector DB)]
+    Embedder -->|Vectors| Postgres
     
-    Qdrant <--> MCP[MCP Server]
     Postgres <--> MCP
     MCP <--> Claude[Coding Agents]
 ```
@@ -86,9 +85,9 @@ Converts files into `Chunk` objects. Strategy by file type: python `ast` for fun
 
 ### knowledge.py
 Pure Python. No transport dependency. Orchestrates the 2-stage search pipeline (Cache -> Embed -> Retrieve & RRF -> Rerank -> Cache), incremental indexing, and decision logging.
-- `search(query, project?, top_k)` — Coordinates Redis cache check, Ollama query embedding, Qdrant + BM25 RRF recall, Cross-Encoder reranking, and cache updating.
-- `reindex_project(name, force?)` — incremental checks compare local file hashes against the PostgreSQL `files` table (fast database query instead of scrolling Qdrant).
-- `re_embed_all_projects()` — wipes the Qdrant collection, queries all raw text chunks from PostgreSQL, batch-embeds them using the active model, and recreates the Qdrant vector cache.
+- `search(query, project?, top_k)` — Coordinates Redis cache check, Ollama query embedding, pgvector + BM25 RRF recall, Cross-Encoder reranking, and cache updating.
+- `reindex_project(name, force?)` — incremental checks compare local file hashes against the PostgreSQL `files` table (fast database query instead of slow vector db scans).
+- `re_embed_all_projects()` — wipes the pgvector cache, queries all raw text chunks from PostgreSQL, batch-embeds them using the active model, and stores new vectors.
 - `log_decision(...)` / `get_decision_history(...)` — writes to both Markdown vault (Obsidian compatibility) and PostgreSQL `decision_logs` table (fast query response), falling back to Markdown if Postgres is offline.
 
 ### watcher.py
@@ -115,7 +114,7 @@ index.py --project LENS
   → chunk_project(LENS)
   → register_file() & upsert_chunks() → writes raw text to PostgreSQL
   → embedder.embed_batch([chunk.content, ...])
-  → store.upsert_chunks() → writes points with PostgreSQL chunk UUIDs to Qdrant
+  → store.upsert_chunks() → writes vectors and raw text simultaneously to PostgreSQL
 ```
 
 ### Search (Two-Stage Retrieval Pipeline)
@@ -124,7 +123,7 @@ Agent / User search_codebase("query", project="LENS")
   → 1. Redis Cache check: get_cached(query, project)
        ├── Hit  → returns cached results instantly (0.11ms)
        └── Miss → proceed to Stage 1 Recall:
-                    ├── Qdrant client vector search (Dense score)
+                    ├── pgvector similarity search (Dense score)
                     └── PostgreSQL search_bm25() full-text search (BM25 score)
                     └── Combine & Sort via Reciprocal Rank Fusion (RRF)
                  → proceed to Stage 2 Reranking:
@@ -135,10 +134,10 @@ Agent / User search_codebase("query", project="LENS")
 ### Lossless Model Swap (Re-embedding)
 ```
 re_embed tool / Web UI
-  → Qdrant collection deleted & recreated
+  → pgvector embeddings wiped
   → Postgres: SELECT c.content, c.id FROM chunks JOIN files ...
   → embedder.embed_batch(all_contents) using new EMBEDDING_MODEL
-  → Qdrant: upsert new vectors using original PostgreSQL UUIDs
+  → Postgres: update chunks with new vectors
 ```
 
 ---
@@ -146,7 +145,7 @@ re_embed tool / Web UI
 ## Infrastructure
 
 - **PostgreSQL 16:** Running on Mac Mini at `192.168.0.234:5434` (database `repo_knowledge`).
-- **Qdrant:** Running on Mac Mini at `192.168.0.234:6333`.
+
 - **Ollama:** Running on Mac Mini at `192.168.0.234:11434`.
 - **Redis:** Running on Mac Mini at `192.168.0.234:6379/0`.
 - **Dashboard Web UI:** `http://localhost:8000`.

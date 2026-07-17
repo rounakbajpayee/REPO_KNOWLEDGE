@@ -200,6 +200,7 @@ def test_upsert_chunks(mock_command, mock_connect):
         "class MyClass: pass",
         1,
         10,
+        None,
     )
 
 

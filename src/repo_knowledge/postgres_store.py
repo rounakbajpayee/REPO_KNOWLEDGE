@@ -249,22 +249,25 @@ class PostgresStore:
                 cur.execute("DELETE FROM projects WHERE name = %s", (project_name,))
 
     def upsert_chunks(
-        self, file_id: int, project: str, path: str, chunks: list, chunk_uuids: list[str]
+        self, file_id: int, project: str, path: str, chunks: list, chunk_uuids: list[str], vectors: list[list[float]] | None = None
     ) -> None:
-        """Save raw chunk text records transactionally in the database."""
+        """Save raw chunk text records and vectors transactionally in the database."""
         with self._get_connection() as conn:
+            # Register vector type if psycopg2 has it, otherwise rely on string casting
             with conn.cursor() as cur:
-                for chunk, cuuid in zip(chunks, chunk_uuids):
+                for idx, (chunk, cuuid) in enumerate(zip(chunks, chunk_uuids)):
+                    vector_str = f"[{','.join(map(str, vectors[idx]))}]" if vectors else None
                     cur.execute(
                         """
                         INSERT INTO chunks
                         (id, file_id, project, path, language,
-                        chunk_type, symbol, content, start_line, end_line)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        chunk_type, symbol, content, start_line, end_line, embedding)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (id) DO UPDATE
                         SET content = EXCLUDED.content,
                             start_line = EXCLUDED.start_line,
-                            end_line = EXCLUDED.end_line;
+                            end_line = EXCLUDED.end_line,
+                            embedding = EXCLUDED.embedding;
                     """,
                         (
                             cuuid,
@@ -277,6 +280,7 @@ class PostgresStore:
                             chunk.content,
                             chunk.start_line,
                             chunk.end_line,
+                            vector_str,
                         ),
                     )
 
@@ -505,6 +509,59 @@ class PostgresStore:
                 "start_line": r[7],
                 "end_line": r[8],
                 "bm25_score": round(float(r[9]) / max_rank, 4),
+            }
+            for r in rows
+        ]
+
+    def search_vector(
+        self,
+        query_vector: list[float],
+        project: str | None = None,
+        limit: int = 40,
+    ) -> list[dict]:
+        """Vector similarity search using pgvector cosine distance."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                vector_str = f"[{','.join(map(str, query_vector))}]"
+                # <=>: cosine distance, so 1 - distance is cosine similarity
+                base_sql = """
+                    SELECT
+                        id::text,
+                        project,
+                        path,
+                        language,
+                        chunk_type,
+                        symbol,
+                        content,
+                        start_line,
+                        end_line,
+                        1 - (embedding <=> %s::vector) AS score
+                    FROM chunks
+                    WHERE embedding IS NOT NULL
+                """
+                params: list = [vector_str]
+                if project:
+                    base_sql += " AND project = %s"
+                    params.append(project)
+                
+                base_sql += " ORDER BY embedding <=> %s::vector LIMIT %s;"
+                params.extend([vector_str, limit])
+                
+                cur.execute(base_sql, params)
+                rows = cur.fetchall()
+        
+        return [
+            {
+                "id": r[0],
+                "project": r[1],
+                "path": r[2],
+                "language": r[3],
+                "chunk_type": r[4],
+                "symbol": r[5],
+                "content": r[6],
+                "start_line": r[7],
+                "end_line": r[8],
+                "score": round(float(r[9]), 4),
             }
             for r in rows
         ]

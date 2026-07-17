@@ -89,11 +89,7 @@ def get_status():
     except Exception:
         pass
 
-    qdrant_ok = False
-    try:
-        qdrant_ok = svc._store.health_check()
-    except Exception:
-        pass
+
 
     ollama_ok = False
     try:
@@ -106,7 +102,6 @@ def get_status():
             "status": "connected" if postgres_ok else "disconnected",
             "host": f"{POSTGRES_HOST}:{5434}",
         },
-        "qdrant": {"status": "connected" if qdrant_ok else "disconnected", "url": svc._store._url},
         "ollama": {
             "status": "connected" if ollama_ok else "disconnected",
             "model": svc._embedder.model,

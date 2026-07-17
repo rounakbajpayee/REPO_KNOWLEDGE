@@ -14,7 +14,7 @@ Local-first semantic memory layer for codebases. Indexes Git repositories and ex
 ## Architecture
 
 ```
-Projects Folder → Scanner → Chunker → Embedder → Qdrant
+Projects Folder → Scanner → Chunker → Embedder → PostgreSQL (pgvector)
                                                       ↕
                         MCP Server ← KnowledgeService
                                ↕
@@ -29,7 +29,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for component details and design decision
 
 | Layer | Choice | Rationale |
 |---|---|---|
-| **Vector DB** | Qdrant | Fast vector search index supporting metadata payloads and high-speed similarity queries |
+| **Vector DB** | PostgreSQL (pgvector) | Fast vector search index supporting cosine distance via pgvector alongside relational metadata |
 | **Relational Store** | PostgreSQL | Handles repository metadata, file paths, and sync state tracking |
 | **Model Engine** | Ollama | Offloads embedding generation locally without cloud API dependency or latency |
 | **MCP Engine** | `mcp` Python SDK | Conforms to Model Context Protocol specs for plug-and-play agent integration |
@@ -51,7 +51,7 @@ pip install -r requirements.txt
 
 # 3. Configure
 cp .env.example .env
-# Edit .env — set PROJECTS_ROOT, confirm QDRANT_URL, OLLAMA_URL, and POSTGRES_HOST / credentials
+# Edit .env — set PROJECTS_ROOT, confirm OLLAMA_URL, and POSTGRES_HOST / credentials
 
 # 4. Pull the embedding model in Ollama (on Mac)
 ollama pull nomic-embed-text
@@ -79,7 +79,7 @@ python memory_helper.py --diff     # reconstructs decisions from workspace git d
 > ⚠️ **Windows only** — manage.py uses Windows-specific tooling (pythonw.exe, PowerShell, registry). Use the Docker path for Linux/macOS.
 
 ### Docker Compose (Recommended)
-You can run the entire service (Postgres, Qdrant, Web UI, Watcher) in Docker.
+You can run the entire service (Postgres, Web UI, Watcher) in Docker.
 ```bash
 docker-compose up -d
 ```
@@ -148,8 +148,13 @@ Retrieve the chronological list of decisions logged under a topic.
 - Defaults to returning the last 3 entries to preserve the agent's context window.
 
 ### `re_embed`
-Wipe Qdrant vector index and re-embed all code chunks from the PostgreSQL store using the current embedding model. Excellent for lossless model swapping.
+Wipe pgvector index and re-embed all code chunks from the PostgreSQL store using the current embedding model. Excellent for lossless model swapping.
 - No input required
+
+### `benchmark_embeddings`
+Evaluate the Recall@5 retrieval performance of the active embedding model.
+- Input: `qa_pairs` (list of objects with `query` and `expected_path`)
+- Returns: Recall@5 percentage and a detailed hit/miss breakdown for each query.
 
 ---
 
@@ -157,11 +162,9 @@ Wipe Qdrant vector index and re-embed all code chunks from the PostgreSQL store 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `QDRANT_URL` | `http://<your-host>:6333` | Qdrant endpoint (local or Tailscale) |
 | `OLLAMA_URL` | `http://<your-host>:11434` | Ollama endpoint (local or Tailscale) |
 | `EMBEDDING_MODEL` | `nomic-embed-text` | Ollama model name |
 | `EMBEDDING_DIM` | `768` | Must match model (nomic=768, qwen3=1024) |
-| `QDRANT_COLLECTION` | `code_chunks_nomic` | Include model slug for benchmarking |
 | `PROJECTS_ROOT` | `~/Projects` | Root directory to scan |
 | `SEARCH_TOP_K` | `5` | Default search results count |
 | `SEARCH_SCORE_THRESHOLD` | `0.40` | Min similarity score to include in search |
@@ -177,7 +180,7 @@ Wipe Qdrant vector index and re-embed all code chunks from the PostgreSQL store 
 ## Switching Embedding Models
 
 1. Pull the new model in Ollama: `ollama pull <model>`
-2. Update `.env`: `EMBEDDING_MODEL`, `EMBEDDING_DIM`, and `QDRANT_COLLECTION` (new slug name)
+2. Update `.env`: `EMBEDDING_MODEL`, and `EMBEDDING_DIM`
 3. Re-embed losslessly:
    - Click **Lossless Re-embed Vector Cache** on the Dashboard Web UI
    - Or run the MCP tool: `re_embed`
@@ -194,7 +197,7 @@ The new vector index cache will be rebuilt from PostgreSQL text records, without
 - Symbol index (classes, functions, modules)
 - Architecture knowledge extraction (README, ADR, PROD_SPEC)
 - Tree-sitter AST for TypeScript/JavaScript
-- Embedding model benchmarking tool
+
 - OS-agnostic client deploy script (Mac + Dell)
 
 

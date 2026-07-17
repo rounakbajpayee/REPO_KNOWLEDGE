@@ -981,13 +981,7 @@
                         <div class="monitor-val" id="health-postgres-text">Checking...</div>
                     </div>
                 </div>
-                <div class="monitor-card" title="Qdrant Vector Cache state">
-                    <span id="health-qdrant-light" class="indicator"></span>
-                    <div>
-                        <div class="monitor-label">Qdrant Cache</div>
-                        <div class="monitor-val" id="health-qdrant-text">Checking...</div>
-                    </div>
-                </div>
+
                 <div class="monitor-card" title="Ollama Embedding engine state">
                     <span id="health-ollama-light" class="indicator"></span>
                     <div>
@@ -1043,7 +1037,7 @@
                             <h2>Vector Utilities</h2>
                         </div>
                         <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1.5rem;">
-                            The PostgreSQL database stores the plain text Source of Truth. If you change the active embedding model in your setup, click below to re-embed all code chunks into Qdrant losslessly.
+                            The PostgreSQL database stores the plain text Source of Truth. If you change the active embedding model in your setup, click below to re-embed all code chunks directly inside PostgreSQL using pgvector.
                         </p>
                         <button class="btn" style="width: 100%; justify-content: center;" onclick="reEmbedAll()">
                             <svg style="width:1.2rem; height:1.2rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -1216,11 +1210,7 @@
                 pgLight.className = `indicator ${data.postgres.status === 'connected' ? 'connected' : 'disconnected'}`;
                 pgText.textContent = data.postgres.status === 'connected' ? `Connected (${data.postgres.host})` : 'Offline';
 
-                // Qdrant UI Update
-                const qdLight = document.getElementById('health-qdrant-light');
-                const qdText = document.getElementById('health-qdrant-text');
-                qdLight.className = `indicator ${data.qdrant.status === 'connected' ? 'connected' : 'disconnected'}`;
-                qdText.textContent = data.qdrant.status === 'connected' ? 'Connected (Cache OK)' : 'Offline';
+
 
                 // Ollama UI Update
                 const olLight = document.getElementById('health-ollama-light');
@@ -1424,7 +1414,7 @@
 
         // Trigger re-embedding across all projects
         async function reEmbedAll() {
-            if (!confirm("Are you sure you want to re-embed all projects? This will wipe the Qdrant vector database cache and generate new vectors for all stored code chunks from PostgreSQL. This is useful when switching embedding models.")) {
+            if (!confirm("Are you sure you want to re-embed all projects? This will wipe the pgvector database cache and generate new vectors for all stored code chunks from PostgreSQL. This is useful when switching embedding models.")) {
                 return;
             }
             showProgress('Lossless Re-embedding Cache', 'Regenerating code vectors for all projects using the active embedding model...');
