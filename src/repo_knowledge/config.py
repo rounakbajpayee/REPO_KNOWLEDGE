@@ -16,11 +16,11 @@ load_dotenv()
 
 
 # ── Qdrant ──────────────────────────────────────────────────────────────
-QDRANT_URL: str = os.getenv("QDRANT_URL", "http://192.168.0.234:6333")
+QDRANT_URL: str = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
 QDRANT_COLLECTION: str = os.getenv("QDRANT_COLLECTION", "code_chunks_nomic")
 
 # ── PostgreSQL ─────────────────────────────────────────────────────────
-POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "192.168.0.234")
+POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "127.0.0.1")
 POSTGRES_PORT: int = int(os.getenv("POSTGRES_PORT", "5434"))
 POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
 POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "postgres")
@@ -28,7 +28,7 @@ POSTGRES_DB: str = os.getenv("POSTGRES_DB", "repo_knowledge")
 
 
 # ── Ollama ───────────────────────────────────────────────────────────────
-OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://192.168.0.234:11434")
+OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
 # Timeout in seconds for Ollama embed calls.
@@ -67,7 +67,7 @@ RERANK_MODEL: str = os.getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6
 
 # ── Redis cache ──────────────────────────────────────────────────────────────
 # Redis is OPTIONAL — all search paths degrade gracefully when unavailable.
-REDIS_URL: str = os.getenv("REDIS_URL", "redis://192.168.0.234:6379/0")
+REDIS_URL: str = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 REDIS_TTL_S: int = int(os.getenv("REDIS_TTL_S", "300"))  # 5-minute TTL
 
 # ── MCP Server ───────────────────────────────────────────────────────────────
@@ -77,7 +77,7 @@ REDIS_TTL_S: int = int(os.getenv("REDIS_TTL_S", "300"))  # 5-minute TTL
 TOOL_TIMEOUT_S: float = float(os.getenv("TOOL_TIMEOUT_S", "90.0"))
 
 # ── Scanner ───────────────────────────────────────────────────────────────
-PROJECTS_ROOT: str = os.getenv("PROJECTS_ROOT", os.path.expanduser("~/Projects"))
+PROJECTS_ROOT: str = os.getenv("PROJECTS_ROOT", "c:\\Users\\rouna\\seadrive\\rounak\\My Libraries\\Home\\Projects")
 
 # Directories to skip during scanning and chunking
 IGNORE_DIRS: set[str] = {
