@@ -201,8 +201,10 @@ class Store:
             names = self._pg.get_project_names()
             if names:
                 return names
-        except Exception:
-            pass
+        except Exception as e:
+            import traceback, sys
+            print(f"DEBUG Error in store.list_projects: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
         return []
 
     def get_chunks_for_path(self, project: str, rel_path: str) -> list[dict]:

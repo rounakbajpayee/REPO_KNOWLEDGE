@@ -109,6 +109,7 @@ def list_project_files(project_path: Path) -> list[Path]:
             cwd=project_path,
             capture_output=True,
             text=True,
+            stdin=subprocess.DEVNULL,
             check=True,
         )
         paths = [p for p in res.stdout.split("\0") if p]
