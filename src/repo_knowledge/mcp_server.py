@@ -519,7 +519,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         result = {
             "error": (
                 f"Tool '{name}' timed out after {timeout_s}s. "
-                "Backend (Qdrant/Ollama) may be unresponsive."
+                "Backend (pgvector/rapid-mlx) may be unresponsive."
             )
         }
 
