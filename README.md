@@ -31,7 +31,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for component details and design decision
 |---|---|---|
 | **Vector DB** | PostgreSQL (pgvector) | Fast vector search index supporting cosine distance via pgvector alongside relational metadata |
 | **Relational Store** | PostgreSQL | Handles repository metadata, file paths, and sync state tracking |
-| **Model Engine** | Ollama | Offloads embedding generation locally without cloud API dependency or latency |
+| **Model Engine** | rapid-mlx | High-performance inference over Tailscale, providing OpenAI-compatible endpoints |
 | **MCP Engine** | `mcp` Python SDK | Conforms to Model Context Protocol specs for plug-and-play agent integration |
 | **Dashboard API** | FastAPI + Uvicorn | Lightweight, asynchronous web service and monitoring API |
 
@@ -53,9 +53,9 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env — set PROJECTS_ROOT, confirm OLLAMA_URL, and POSTGRES_HOST / credentials
 
-# 4. Pull the embedding model in Ollama (on Mac)
-ollama pull nomic-embed-text
-# or: ollama pull qwen3-embed (when available) — update EMBEDDING_MODEL + EMBEDDING_DIM in .env
+# 4. Verify Model Access
+# Confirm that you can reach your rapid-mlx Tailscale endpoint
+# Edit .env to set OPENAI_API_BASE to your rapid-mlx Tailscale address
 
 # 5. Index your projects
 python index.py                    # index everything under PROJECTS_ROOT
@@ -162,13 +162,13 @@ Evaluate the Recall@5 retrieval performance of the active embedding model.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OLLAMA_URL` | `http://<your-host>:11434` | Ollama endpoint (local or Tailscale) |
-| `EMBEDDING_MODEL` | `nomic-embed-text` | Ollama model name |
-| `EMBEDDING_DIM` | `768` | Must match model (nomic=768, qwen3=1024) |
+| `OPENAI_API_BASE` | `http://<tailscale-ip>:8000/v1` | rapid-mlx endpoint (over Tailscale) |
+| `EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model name available on rapid-mlx |
+| `EMBEDDING_DIM` | `768` | Must match model (nomic=768) |
 | `PROJECTS_ROOT` | `~/Projects` | Root directory to scan |
 | `SEARCH_TOP_K` | `5` | Default search results count |
 | `SEARCH_SCORE_THRESHOLD` | `0.40` | Min similarity score to include in search |
-| `OLLAMA_TIMEOUT` | `120.0` | Timeout in seconds for Ollama calls |
+| `API_TIMEOUT` | `120.0` | Timeout in seconds for rapid-mlx calls |
 | `RERANK_ENABLED` | `true` | Set to false to disable Cross-Encoder reranking |
 | `RERANK_FETCH_K` | `40` | Candidate pool size retrieved from hybrid recall |
 | `RERANK_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | CPU-friendly cross-encoder model name |
@@ -179,7 +179,7 @@ Evaluate the Recall@5 retrieval performance of the active embedding model.
 
 ## Switching Embedding Models
 
-1. Pull the new model in Ollama: `ollama pull <model>`
+1. Configure the new model on your rapid-mlx server
 2. Update `.env`: `EMBEDDING_MODEL`, and `EMBEDDING_DIM`
 3. Re-embed losslessly:
    - Click **Lossless Re-embed Vector Cache** on the Dashboard Web UI
